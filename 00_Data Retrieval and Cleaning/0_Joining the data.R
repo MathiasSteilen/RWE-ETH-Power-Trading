@@ -40,3 +40,4 @@ spot_ch |>
   labs(title = "Replicating the Chart on Slide 25", y = "EUR", x = "") +
   theme_bw()
 
+
