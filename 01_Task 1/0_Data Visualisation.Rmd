@@ -1,0 +1,55 @@
+---
+title: "Data Visualisation"
+author: "Mathias Steilen"
+date: "2024-03-12"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(ggsci)
+library(scales)
+
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Default theme for charts
+theme_set(
+  theme_bw() +
+    theme(  
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(
+        face = "italic", size = 10, colour = "grey50"
+      )
+    )
+)
+
+```
+
+### Chart 0: Example Chart
+
+```{r}
+# Read data
+df = read_csv("../00_Data Retrieval and Cleaning/0_df_final_ch-de.csv") |> 
+  arrange(date)
+```
+
+```{r}
+# Make the chart
+df |> 
+  ggplot(aes(date, day_ahead_price_ch)) +
+  geom_line() +
+  labs(title = "Day-Ahead Prices",
+       subtitle = "Switzerland")
+```
+
+
+### Chart 1: Write title here TBD
+
+```{r}
+
+```
+
