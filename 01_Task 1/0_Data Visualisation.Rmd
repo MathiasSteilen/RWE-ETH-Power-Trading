@@ -50,6 +50,6 @@ df |>
 ### Chart 1: Write title here TBD
 
 ```{r}
-
+"Ciao"
 ```
 
