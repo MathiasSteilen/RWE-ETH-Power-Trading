@@ -23,7 +23,8 @@ theme_set(
       plot.title = element_text(face = "bold", size = 14),
       plot.subtitle = element_text(
         face = "italic", size = 10, colour = "grey50"
-      )
+      ),
+      plot.title.position = "plot"
     )
 )
 
