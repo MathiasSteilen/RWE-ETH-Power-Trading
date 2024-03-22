@@ -153,3 +153,10 @@ ggsave("9_Residuals.png", width = 16, height = 10, dpi = 300,
 summary(fit)
 
 
+
+acf(na.omit(as.vector(fit$residuals)))
+
+
+ll <- fit$residuals
+lol <- auto.arima(ll)
+summary(lol)
