@@ -1,0 +1,385 @@
+---
+title: "Data selection"
+author: "Federico Deotto"
+date: "2024-03-12"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(ggsci)
+library(scales)
+library(tidymodels)
+library(stats)
+library(AMR)
+set.seed(123)
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Default theme for charts
+theme_set(
+  theme_bw() +
+    theme(  
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(
+        face = "italic", size = 10, colour = "grey50"
+      )
+    )
+)
+
+```
+
+
+#SUMMARY
+The first challenge we faced was the high number of variables, necessitating reduction. To tackle this, I conducted PCA on the covariate matrix and employed the elbow criterion to select the first 4 components. Subsequently, I identified the variables that primarily contributed to these principal components. This led to a significant reduction in dimensionality, nearly halving the number of variables. However, it's essential to note that this method doesn't consider time and assumes linear relationships between variables.
+
+Next, I utilized M's code to adapt a Lasso regression and a Boost model. In the former, I selected variables associated with non-null coefficients, while in the latter, I considered the 50 most relevant variables. For both models, I adopted a 'prediction approach,' shifting covariates by one day.
+
+Following this, I calculated the Spearman correlation matrix on the union_variable
+and pinpointed highly correlated variables. This insight may prove invaluable in a subsequent phase for addressing multicollinearity during modeling.
+
+Finally, I saved the intersection and union of the coefficients selected using the three different approaches.
+
+```{r}
+# Read data
+data <- read_csv('data_cleaned_UTC.csv')
+df <- data
+```
+
+I shift the covariates of one day, this means that the date for the data frame df makes sense only for day_ahead_price_de. df will be used in reduction with model.
+
+```{r}
+df1 <- df %>% #response
+  select(date, day_ahead_price_de)
+
+df2 <- df %>% #covariates
+  select(-c(date, day_ahead_price_de))
+
+n <- nrow(df1)
+
+df <- cbind(df1[1:(n-24),], df2[25:n, ])
+rm(df1, df2, n)
+```
+
+##Covariates
+
+#PCA
+The initial segment of the code pertains to the analysis of covariates (data), primarily focusing on their reduction.
+
+
+Perform PCA on covariates, select the first four pc based on elbow criterion. 
+Plot for each of the PC the histogram of loadings.
+```{r}
+data <- data %>% #covariates 
+  select(-c(day_ahead_price_de, date))
+
+pca_data <- pca(data, scale. = T, center = T)
+plot(pca_data, type = 'l') #4 component
+
+rot <- pca_data$rotation[, 1:4]
+par(mfrow = c(2,2))
+for (i in 1:ncol(rot)) {
+  hist(abs(rot[, i]), main = paste("Histogram of Variable", i))
+}
+par(mfrow = c(1,1))
+```
+
+
+Select the most relavant variables in the first 4 pc, based on  arbitrary tresholds (histograms)
+
+```{r}
+cond1 <- abs(rot[,1:2]) > 0.15
+cond2 <- abs(rot[,3:4]) > 0.2
+matr <- cbind(cond1, cond2)
+cond <- rowSums(matr)
+pca_coef <- rownames(matr[cond == 1, ])
+
+rm(cond1, cond2, matr, cond, rot, i, pca_data)
+```
+
+
+
+
+#LASSO and BOOST
+This model is adapted on the whole time window. 
+
+Split train and test
+```{r}
+start_date = min(df$date)
+split_date = ymd_hm("2020-01-01 00:00")
+end_date = ymd_hm("2021-01-01 00:00")
+
+dt_train = df |> 
+  filter(date > start_date) |> 
+  filter(date < split_date) |> 
+  filter(date < end_date)
+
+dt_test = df |> 
+  filter(date > start_date) |> 
+  filter(date >= split_date) |> 
+  filter(date < end_date)
+```
+
+```{r}
+# Create recipe
+lasso_rec = recipe(day_ahead_price_de ~ ., data = dt_train) |>
+  step_mutate(hour = hour(date)) |> 
+  step_date(date) |> 
+  update_role(date, new_role = "date") |> 
+  step_zv(all_predictors()) |> 
+  step_center(all_numeric_predictors()) |> 
+  step_scale(all_numeric_predictors()) |> 
+  step_dummy(all_nominal_predictors())
+
+lasso_rec |> prep() |> juice()
+
+summary(lasso_rec) |> as.data.frame()
+
+# Setting up the tuning grid
+lasso_grid <- seq(0.00001, 0.2, length.out = 25)
+
+# Tune the parameter
+train_metrics = c()
+test_metrics = c()
+
+fit_lasso = function(alpha){
+  # Setting up specifications
+  lasso_spec = linear_reg(mixture = 1, penalty = alpha) %>%
+    set_mode("regression") %>%
+    set_engine("glmnet")
+  
+  # Setting up workflow
+  lasso_wflow = workflow() |>
+    add_model(lasso_spec) |>
+    add_recipe(lasso_rec)
+  
+  # Fit the model with parameter
+  lasso_fit = lasso_wflow |> 
+    fit(dt_train)
+}
+
+for (i in 1:length(lasso_grid)){
+  
+  # Fit lasso with parameter
+  lasso_fit = fit_lasso(alpha = lasso_grid[i])
+  
+  # Make predictions and store the metric
+  train_metrics = append(
+    train_metrics,
+    lasso_fit |> 
+      predict(dt_train) |> 
+      mutate(actual = dt_train$day_ahead_price_de) |> 
+      rmse(actual, .pred) |> 
+      pull(.estimate)
+  )
+  
+  test_metrics = append(
+    test_metrics,
+    lasso_fit |> 
+      predict(dt_test) |> 
+      mutate(actual = dt_test$day_ahead_price_de) |> 
+      rmse(actual, .pred) |> 
+      pull(.estimate)
+  )
+  
+  print(paste(i, "done out of", length(lasso_grid)))
+}
+
+tuning_results = tibble(
+  alpha = lasso_grid,
+  train = train_metrics,
+  test = test_metrics
+) 
+
+tuning_results |> 
+  pivot_longer(-alpha) |> 
+  mutate(value = value^2) |> 
+  ggplot(aes(alpha, value, colour = name)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Train and Test MSE by Penalty")
+```
+
+
+```{r}
+# Fitting the model
+lasso_fit = fit_lasso(alpha = 0.1500025) #min test
+
+# Predictions vs actuals in-sample
+lasso_fit |> 
+  augment(dt_train) |>  
+  ggplot(aes(day_ahead_price_de, .pred)) +
+  geom_point(alpha = 0.2, colour = "midnightblue", size = 2) +
+  geom_abline(lty = "dashed", colour = "grey50") +
+  scale_x_continuous(labels = scales::comma_format()) +
+  scale_y_continuous(labels = scales::comma_format()) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+# Predictions vs actuals out-of-sample
+lasso_fit |> 
+  augment(dt_test) |>  
+  ggplot(aes(day_ahead_price_de, .pred)) +
+  geom_point(alpha = 0.2, colour = "midnightblue", size = 2) +
+  geom_abline(lty = "dashed", colour = "grey50") +
+  scale_x_continuous(labels = scales::comma_format()) +
+  scale_y_continuous(labels = scales::comma_format()) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+# Get the variables that remained in the model
+lasso_coef <- lasso_fit |> 
+  tidy() |> 
+  filter(estimate > 0, 
+         ! str_detect(term, "Intercept")) |> 
+  pull(term)
+```
+
+### Variable Importance with Random Forest
+
+Should give a general impression of which variables might be important
+
+```{r}
+# Create recipe
+rf_rec = recipe(day_ahead_price_de ~ ., data = dt_train) |>
+  step_mutate(hour = hour(date)) |> 
+  step_date(date) |> 
+  update_role(date, new_role = "date") |> 
+  step_zv(all_predictors()) |> 
+  step_center(all_numeric_predictors()) |> 
+  step_scale(all_numeric_predictors())
+
+rf_rec |> prep() |> juice()
+
+summary(rf_rec) |> as.data.frame()
+
+# Setting up specifications
+rf_spec = rand_forest() |>
+  set_engine("ranger", importance = "impurity") |>
+  set_mode("regression")
+
+# Setting up workflow
+rf_wflow = workflow() |>
+  add_model(rf_spec) |>
+  add_recipe(rf_rec)
+
+# Fitting the model
+rf_fit = rf_wflow |> 
+  fit(dt_train)
+
+# Predictions vs actuals in-sample
+rf_fit |> 
+  augment(dt_train) |>  
+  ggplot(aes(day_ahead_price_de, .pred)) +
+  geom_point(alpha = 0.2, colour = "midnightblue", size = 2) +
+  geom_abline(lty = "dashed", colour = "grey50") +
+  scale_x_continuous(labels = scales::comma_format()) +
+  scale_y_continuous(labels = scales::comma_format()) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+# Get feature importance
+rf_fit |>
+  extract_fit_parsnip() |>
+  vip::vi() |> 
+  as_tibble() |> 
+  slice_max(order_by = Importance, n = 50) %>% 
+  ggplot(aes(Importance, reorder(Variable, Importance))) +
+  geom_col(fill = "midnightblue", colour = "white") +
+  labs(title = "Variable Importance",
+       subtitle = "Only the most important predictors are shown.",
+       y = "Predictor",
+       x = "Relative Variable Importance") +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", size = 12),
+        plot.subtitle = element_text(face = "italic", colour = "grey50"))
+
+boost_coef <- rf_fit |>
+  extract_fit_parsnip() |>
+  vip::vi() |> 
+  as_tibble() |> 
+  slice_max(order_by = Importance, n = 50) %>% 
+  select(Variable)
+```
+
+
+
+Select the union of the variables select with the 3 different models
+```{r}
+union_coef <- union(lasso_coef, boost_coef) %>% unlist()
+(union_coef <- union(union_coef, pca_coef) %>% sort())
+```
+
+
+```{r}
+intersect_coef <- intersect(pca_coef, boost_coef$Variable)
+(intersect_coef <- intersect(lasso_coef, intersect_coef) %>% sort())
+```
+
+```{r}
+#Consider again the full dataset
+data <- read.csv('data_cleaned_UTC.csv')  #hydro ecc why not present same file?
+```
+
+#Spearman
+
+Look into Spearman correlation. The covariates are themselves time series, so 
+watch out to spurious correlation.
+
+```{r}
+cond <- union_coef %in% colnames(data)
+temporary <- union_coef[!cond] %>% tibble() %>% 
+  filter(!str_detect(., 'date')) %>% 
+  filter(!str_detect(., 'hour')) 
+names(temporary) <- 'Column_Name'
+temp <- temporary$Column_Name
+temporary <- temporary %>%
+  mutate(Column_Name = str_replace_all(Column_Name, "-", "."))
+```
+
+```{r}
+cond <- union_coef %in% temp 
+union_coef[cond] <- temporary$Column_Name
+```
+
+
+
+```{r}
+cond <- union_coef %in% colnames(data) #hour or day
+union_coef2 <- union_coef[cond]
+
+# Compute Spearman correlation matrix
+temporary <- data %>% 
+  select(all_of(union_coef2))
+cor_matrix <- cor(temporary, method = "spearman", use = "pairwise.complete.obs")
+threshold <- 0.7
+
+# Find pairs of variables with correlation greater than the threshold
+high_corr_pairs <- which(abs(cor_matrix) > threshold & cor_matrix != 1, arr.ind = TRUE)
+
+# Get variable names for the pairs
+variable_names <- colnames(data)
+
+# Initialize an empty vector to store pairs information
+pairs_info <- character(nrow(high_corr_pairs))
+
+# Fill the vector with pairs information
+for (i in 1:nrow(high_corr_pairs)) {
+  var1 <- variable_names[high_corr_pairs[i, 1]]
+  var2 <- variable_names[high_corr_pairs[i, 2]]
+  pairs_info[i] <- paste(var1, ",", var2)
+}
+```
+
+Names of variables highly correlated, maybe can arose multicollinearity from them,
+pairs_info
+
+
+
+```{r}
+writeLines(intersect_coef, "intersect_coef.txt")
+writeLines(union_coef, "union_coef.txt")
+write.csv(df, "data_shifted_one_day.csv", row.names = FALSE)
+```

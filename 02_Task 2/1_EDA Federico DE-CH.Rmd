@@ -1,0 +1,169 @@
+---
+title: "Data Dependent"
+author: "Federico Deotto"
+date: "2024-03-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(ggsci)
+library(scales)
+library(tidymodels)
+library(stats)
+library(AMR)
+set.seed(123)
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Default theme for charts
+theme_set(
+  theme_bw() +
+    theme(  
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(
+        face = "italic", size = 10, colour = "grey50"
+      )
+    )
+)
+
+```
+
+
+#Analysis of German Price
+
+```{r}
+#Load only the depedent data
+dependent <- read.csv('data_cleaned_UTC.csv') %>% 
+  select(c(date, day_ahead_price_de)) %>% 
+  arrange(date) %>% 
+  rename(price = day_ahead_price_de) %>% 
+  mutate(date = date(date))
+```
+
+
+```{r}
+date_2023 = ymd_hm("2023-01-01 00:00")
+
+dependent |> 
+  ggplot(aes(date, price)) +
+  #geom_point() +
+  geom_line() +
+  labs(title = "Day-Ahead Price Germany",
+       y = "", x= "") +
+  theme(plot.margin = margin(10, 10, 10, 10))
+
+dependent |> 
+  filter(date > date_2023) %>% 
+  ggplot(aes(date, price)) +
+  geom_line() +
+  labs(title = "Day-Ahead Price Germany 2023",
+       y = "", x= "") +
+  theme(plot.margin = margin(10, 10, 10, 10))
+
+shift <- dependent %>% select(price) %>% min(na.rm = T)
+
+dependent |> 
+  mutate(price = log(price - shift)) %>% 
+  filter(date > date_2023) %>% 
+  ggplot(aes(date, price)) +
+  geom_line() +
+  labs(title = "Day-Ahead Log-Price Germany 2023",
+       y = "", x= "") +
+  theme()
+```
+
+What happend?
+```{r}
+pos <- dependent %>% select(price) %>% pull() %>% which.min()
+dependent[pos, ] #idk
+```
+```{r}
+dependent <- dependent %>%
+  mutate(return = c(diff(price)/lag(price))) %>% 
+  mutate(frac = price/lag(price))
+
+dependent |>
+  ggplot(aes(date, return)) +
+  geom_line() +
+  labs(title = "Return",
+       y = "", x= "") +
+  theme()
+
+dependent |> 
+  filter(date > date_2023) %>% 
+  ggplot(aes(date, return)) +
+  geom_line() +
+  labs(title = "Return Germany 2023",
+       y = "", x= "") +
+  theme()
+
+dependent |>
+  ggplot(aes(date, frac)) +
+  geom_line() +
+  labs(title = "Frac",
+       y = "", x= "") +
+  theme()
+
+dependent |> 
+  filter(date > date_2023) %>% 
+  ggplot(aes(date, frac)) +
+  geom_line() +
+  labs(title = "Frac Germany 2023",
+       y = "", x= "") +
+  theme()
+```
+```{r}
+dependent |> 
+  filter(date > date_2023) %>% summary()
+```
+
+
+```{r}
+dependent |> 
+  mutate(year = year(date))  |> 
+  group_by(year) |> 
+  summarise(price = mean(price)) |> 
+  ungroup() |> 
+  ggplot(aes(year, price)) +
+  geom_col()
+```
+
+```{r}
+dependent |> 
+  mutate(month = month(date)) |> 
+  ggplot(aes(month, price, group = month)) +
+  geom_boxplot(outlier.colour = NA) +
+  ylim(0, 2.5)
+```
+```{r}
+dependent |> 
+  mutate(week = week(date)) |> 
+  ggplot(aes(week, price, group = week)) +
+  geom_boxplot(outlier.colour = NA) +
+  ylim(0, 2.5)
+```
+
+
+```{r}
+#NOT A GOOD GRAPH --- WRONG!!!
+dependent |> 
+  mutate(dow = wday(date)) |> 
+  ggplot(aes(dow, price, group = dow)) +
+  geom_boxplot(outlier.colour = NA)
+```
+
+```{r}
+#NOT A GOOD GRAPH --- WRONG!!!
+dependent |> 
+  mutate(hour = hour(date)) |> 
+  ggplot(aes(hour, price, group = hour)) +
+  geom_boxplot(outlier.colour = NA)
+```
+
+
+I should continue look into the price time series, looking how the price (month) and
+the weather index are correlated.
+
+
