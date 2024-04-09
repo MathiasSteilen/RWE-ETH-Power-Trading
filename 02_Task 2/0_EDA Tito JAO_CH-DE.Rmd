@@ -1,0 +1,230 @@
+---
+title: "0_EDA Tito JAOprice_DE-CH"
+author: "Tito Quadri"
+date: "2024-04-01"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(pacman)
+pacman::p_load(here, tidyverse)
+library(ggsci)
+library(scales)
+
+# Default theme for charts
+theme_set(
+  theme_bw() +
+    theme(  
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(
+        face = "italic", size = 10, colour = "grey50"
+      )
+    )
+)
+
+
+```
+
+## Load data
+```{r}
+df<- read.csv("../00_Data Retrieval and Cleaning/0_df_final_de-ch_UTC.csv")
+names(df)
+```
+
+## Remove all variables intuitively useless
+```{r}
+
+df<- df[,-(84:116)]
+names(df)
+
+```
+
+
+## Drop variables with more than 5% 
+```{r}
+columns_with_missing_data <- function(df, threshold = 0.5) {
+  # Calculate percentage of missing values for each column
+  missing_percentages <- colMeans(is.na(df))
+  columns_to_drop <- names(missing_percentages[missing_percentages > threshold])
+  return(columns_to_drop)
+}
+
+columns_to_drop <- columns_with_missing_data(df, threshold = 0.05)
+df<- df %>% select(-columns_to_drop)
+```
+
+## Impute missing values with random forest
+```{r}
+df_imputed = missRanger::missRanger(
+  df,
+  num.trees = 3,
+  sample.fraction = 0.1,
+  verbose = 1
+)
+
+df<- df_imputed
+```
+
+## non allocated transmission capacity
+```{r}
+df |> 
+  select(date, auction_price, allocatedCapacity, ATC) |> 
+  mutate(difference_allocated = ATC - allocatedCapacity) |> 
+  summary()
+```
+median is zero and mean is low, often all the capacity is allocated (al almost all) 
+
+
+## Hitogram target variables
+```{r}
+df |> 
+  select(date, auction_price, allocatedCapacity, ATC) |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(value)) +
+  geom_histogram() +
+  facet_wrap(~ name, scales = "free")
+```
+auction price follows some generalized pareto distribution, allocated capacity and ATC have a bimodal distribution (hence surely not normal), and are very similar (as suggested before)
+
+```{r}
+ggplot(aes(value)) +
+  geom_line()
+```
+
+
+## Seasonality
+
+### Yearly
+
+```{r}
+df |> 
+  mutate(year = year(date))  |> 
+  group_by(year) |> 
+  summarise(auction_price = mean(auction_price)) |> 
+  ungroup() |> 
+  ggplot(aes(year, auction_price)) +
+  geom_col()
+```
+
+There does not seem to be a trend in the average auction price.
+
+### Monthly
+
+```{r}
+df |> 
+  mutate(month = month(date)) |> 
+  ggplot(aes(month, auction_price, group = month)) +
+  geom_boxplot(outlier.colour = NA) +
+  coord_cartesian(ylim = c(0, 80))
+```
+
+Auction prices are lower in the summer months, this may suggest that domestic CH is higher in summer (or better, in general consumption is lower)
+
+
+
+### Daily
+
+```{r}
+df |> 
+  mutate(hour = hour(date)) |> 
+  ggplot(aes(hour, auction_price, group = hour)) +
+  geom_boxplot(outlier.colour = NA) +
+  coord_cartesian(ylim = c(0, 60))
+```
+
+```{r}
+df |> 
+  mutate(hour = hour(date), quarter = quarter(date)) |> 
+  ggplot(aes(hour, auction_price, group = hour)) +
+  geom_boxplot(outlier.colour = NA) +
+  coord_cartesian(ylim = c(0, 70)) +
+  facet_wrap(~ quarter, scales = "free")
+```
+
+```{r}
+df |> 
+  mutate(hour = hour(date), month= month(date)) |> 
+  ggplot(aes(hour, auction_price, group = hour)) +
+  geom_boxplot(outlier.colour = NA) +
+  coord_cartesian(ylim = c(0, 70)) +
+  facet_wrap(~ month, scales = "free")
+```
+
+We see that there are big differences between each month hourly distribution, some of them may be grouped (12,1,2 or 5,6,8), some other have specific behaviours (3, 10). One way to group would be by temperature (for example dec, jen, feb; march, november; april, october; ... )
+
+## Correlation
+
+```{r}
+# Calculate RANK (SPEARMAN) correlations between predictors and response
+correlation <- as.data.frame(cor(df[, -c(1,2,3)], df[,3], method = "spearman"))
+correlation$index=4:((nrow(correlation))+3)
+
+sorted_corr <- correlation[order(abs(correlation[,"V1"]), decreasing = T),]
+
+corr_predictors <- sorted_corr[1:40,]
+
+corr_names<-colnames(df)[corr_predictors$index]
+
+```
+
+## Random forest importance based on the first 40 corr. var.
+
+```{r}
+
+library(randomForest)
+
+dfone<- df %>% select(c(corr_names,names(df[,c(1,2,3)])))
+
+
+# Train a random forest model
+rf <- randomForest(auction_price ~ ., data = dfone)
+
+# Extract feature importance
+feature_importance <- importance(rf, type = 2) %>% as.data.frame()
+feature_importance$index=c(sorted_corr$index[1:40],1,2)
+
+View(feature_importance)
+
+sorted_importance <- feature_importance[order(abs(feature_importance$IncNodePurity), decreasing = T),]
+
+var_imp_names<- colnames(df)[sorted_importance$index]
+
+var_imp_names
+
+#RMSE of rf
+sqrt(rf$mse[length(rf$mse)])
+
+#SD of auction price in the sample
+sd(df$auction_price)
+
+```
+
+The RMSE is significantly smaller than the SD of the target wariable, suggesting that the 40 variables taken toghether have predictive power over auction price
+
+Most of them make sense; 
+
+date is one of the most important, suggesting seasonality
+
+
+
+
+## Scatterplots ATC, capacity_forecast_de_lu_ch, allocatedCapacity, crossborder_actual_flow_de_lu_ch
+
+```{r}
+plot(df$ATC, df$capacity_forecast_de_lu_ch)
+```
+Clearly highly correlated (as expected), we should use only one of the two in our model
+
+
+```{r}
+plot( df$ATC, df$allocatedCapacity)
+```
+Same hold for these two. We shopuld just pick the most precise of the three
+
+```{r}
+plot( df$ATC, df$crossborder_actual_flow_de_lu_ch)
+```
+
+crossborder_actual_flow_de_lu_ch behaves differently and there is not a clear pattern between the two. We can include both in the model
