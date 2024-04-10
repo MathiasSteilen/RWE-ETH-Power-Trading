@@ -11,7 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(ggsci)
 library(scales)
-library(tidymodels)
+# library(tidymodels)
 
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 
@@ -37,13 +37,15 @@ Select variables based on availability (NA) and variance, ensuring conversion to
 data_ch_de = read_csv("../00_Data Retrieval and Cleaning/0_df_final_ch-de_UTC.csv")
 data_de_ch = read_csv("../00_Data Retrieval and Cleaning/0_df_final_de-ch_UTC.csv")
 data_ch_de <- data_ch_de %>%
-  rename(auction_price_ch_de = auction_price)
+  rename(auction_price_ch_de = auction_price, allocatedCapacity_ch_de= allocatedCapacity, ATC_ch_de= ATC )
 
 #Initialize df that contain ALL variables
 df <- data_ch_de %>% 
-  mutate(auction_price_de_ch = data_de_ch$auction_price) %>% 
+  mutate(auction_price_de_ch = data_de_ch$auction_price, allocatedCapacity_de_ch= data_de_ch$allocatedCapacity, ATC_de_ch= data_de_ch$ATC) %>% 
   select(-dst) %>% 
   arrange(date)
+
+
 
 rm(data_ch_de, data_de_ch)
 ```
@@ -161,5 +163,5 @@ df_imputed = missRanger::missRanger(
 Save the dataset in a file so we can use it in the future with the same imputation.
 
 ```{r}
-write.csv(df_imputed, "data_cleaned_UTC.csv", row.names = FALSE)
+write.csv(df_imputed, "data_cleaned_UTC_new.csv", row.names = FALSE)
 ```
