@@ -119,6 +119,32 @@ df |>
   naniar::vis_miss(warn_large_data = F)
 ```
 
+
+Before imputation remove other variables based on following:
+
+There are columns that contains forecast and other that contains the actual value.
+We decided to use keep only the actual data for those variables that also have  a forecast, since we can not trace back when the forecast was received by the traders.
+
+```{r}
+# Identify columns containing "actual" and "forecast" using grep
+actual_columns <- grep("actual", names(df), value = TRUE)
+forecast_columns <- grep("forecast", names(df), value = TRUE)
+print(actual_columns)
+print('')
+print(forecast_columns)
+```
+
+The solar_forecast_country and the solar_actual_aggregated_country express similar quantities: the former is a forecast of wind and solar power generation as an average of forecasted power output per Market Time Unit and per bidding zone, while the latter expresses the actual aggregated output per Market Time Unit (sum). Since we cannot recover the exact time when the forecasts are published (when the forecasts are available to traders), and we can assume that the forecasts nowadays are accurate, we decided to remove the forecasts. This reasoning is also applied to other variables.
+
+
+```{r}
+remove_forecast <- c('solar_forecast_fr', 'solar_forecast_ch', 'solar_forecast_it','solar_forecast_at', 'wind_offshore_forecast_de', 'wind_onshore_forecast_de', 'wind_onshore_forecast_ch', 'wind_onshore_forecast_at')
+
+df <- df %>% 
+  select(!all_of(remove_forecast))
+```
+
+
 Impute the missing values with Random Forest:
 
 ```{r}
@@ -130,6 +156,7 @@ df_imputed = missRanger::missRanger(
   verbose = 1
 )
 ```
+
 
 Save the dataset in a file so we can use it in the future with the same imputation.
 
