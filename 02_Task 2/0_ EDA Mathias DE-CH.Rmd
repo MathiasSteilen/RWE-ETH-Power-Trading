@@ -54,15 +54,18 @@ df = df |>
   select(
     -c(
       biomass_actual_consumption_at,
-      fossil_gas_actual_consumption_at, fossil_hard_coal_actual_consumption_at, fossil_oil_actual_aggregated_at,
-      fossil_oil_actual_consumption_at, geothermal_actual_aggregated_at, geothermal_actual_consumption_at,
-      `hydro_run-of-river_and_poundage_actual_consumption_at`, hydro_water_reservoir_actual_consumption_at,
-      other_actual_aggregated_at, other_actual_consumption_at, other_renewable_actual_aggregated_at,
-      other_renewable_actual_consumption_at, solar_actual_consumption_at, waste_actual_aggregated_at,
+      fossil_gas_actual_consumption_at, fossil_hard_coal_actual_consumption_at,
+      fossil_oil_actual_aggregated_at, fossil_oil_actual_consumption_at,
+      geothermal_actual_aggregated_at, geothermal_actual_consumption_at,
+      `hydro_run-of-river_and_poundage_actual_consumption_at`,
+      hydro_water_reservoir_actual_consumption_at,
+      other_actual_aggregated_at, other_actual_consumption_at,
+      other_renewable_actual_aggregated_at,
+      other_renewable_actual_consumption_at, solar_actual_consumption_at,
+      waste_actual_aggregated_at,
       waste_actual_consumption_at, wind_onshore_actual_consumption_at)
   ) 
 ```
-
 
 ### Missing value
 
@@ -120,8 +123,8 @@ Impute the missing values with Random Forest:
 ```{r}
 df_imputed = missRanger::missRanger(
   df,
-  num.trees = 3,
-  sample.fraction = 0.1,
+  num.trees = 50,
+  # sample.fraction = 0.1,
   verbose = 1
 )
 ```
@@ -134,6 +137,11 @@ df = df_imputed
 df |> 
   is.na() |>
   colMeans()
+```
+
+```{r}
+df |> 
+  write_csv("../00_Data Retrieval and Cleaning/0_df_final_ch-de_UTC_removedconstant_removedmissing_imputed.csv")
 ```
 
 ### The Target Variable
