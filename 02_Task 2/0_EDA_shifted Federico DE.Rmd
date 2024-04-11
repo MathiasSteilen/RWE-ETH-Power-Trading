@@ -377,9 +377,8 @@ Names of variables highly correlated, maybe can arose multicollinearity from the
 pairs_info
 
 
-
 ```{r}
-writeLines(intersect_coef, "intersect_coef.txt")
-writeLines(union_coef, "union_coef.txt")
-write.csv(df, "data_shifted_one_day.csv", row.names = FALSE)
+#writeLines(intersect_coef, "intersect_coef.txt")
+#writeLines(union_coef, "union_coef.txt")
+#write.csv(df, "data_shifted_one_day.csv", row.names = FALSE)
 ```

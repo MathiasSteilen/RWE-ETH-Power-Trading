@@ -163,5 +163,5 @@ df_imputed = missRanger::missRanger(
 Save the dataset in a file so we can use it in the future with the same imputation.
 
 ```{r}
-write.csv(df_imputed, "data_cleaned_UTC_new.csv", row.names = FALSE)
+write.csv(df_imputed, "data_cleaned_UTC.csv", row.names = FALSE)
 ```

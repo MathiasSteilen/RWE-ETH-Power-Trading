@@ -3,8 +3,10 @@ actual_load_ch
 actual_load_de
 actual_load_fr
 actual_load_it
-allocatedCapacity
-ATC
+allocatedCapacity_ch_de
+allocatedCapacity_de_ch
+ATC_ch_de
+ATC_de_ch
 auction_price_ch_de
 auction_price_de_ch
 biomass_actual_aggregated_at
@@ -12,6 +14,7 @@ biomass_actual_aggregated_de
 capacity_forecast_ch_at
 capacity_forecast_it_ch
 crossborder_actual_flow_ch_de_lu
+crossborder_actual_flow_de_lu_ch
 crossborder_actual_flow_fr_ch
 crossborder_actual_flow_it_ch
 date_dow_Tue
@@ -43,10 +46,8 @@ hydro_reservoir_storage_at
 hydro_run.of.river_and_poundage_actual_aggregated_at
 hydro_run.of.river_and_poundage_actual_aggregated_de
 hydro_run.of.river_and_poundage_actual_aggregated_fr
-hydro_run.of.river_and_poundage_actual_aggregated_it
 hydro_run.of.river_and_poundage_ch
 hydro_water_reservoir_actual_aggregated_at
-hydro_water_reservoir_actual_aggregated_de
 hydro_water_reservoir_actual_aggregated_fr
 hydro_water_reservoir_actual_aggregated_it
 hydro_water_reservoir_ch
