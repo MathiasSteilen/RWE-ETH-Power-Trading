@@ -29,49 +29,49 @@ theme_set(
 
 ## Load data
 ```{r}
-df<- read.csv("../00_Data Retrieval and Cleaning/0_df_final_de-ch_UTC.csv")
-names(df)
-```
+df<- read.csv("data_cleaned_UTC_new.csv")
 
-## Remove all variables intuitively useless
-```{r}
-
-df<- df[,-(84:116)]
+df<-select(df, date, auction_price_de_ch, everything())
 names(df)
+df$date<- as.Date(df$date)
 
 ```
 
 
 ## Drop variables with more than 5% 
 ```{r}
-columns_with_missing_data <- function(df, threshold = 0.5) {
-  # Calculate percentage of missing values for each column
-  missing_percentages <- colMeans(is.na(df))
-  columns_to_drop <- names(missing_percentages[missing_percentages > threshold])
-  return(columns_to_drop)
-}
+df %>% is.na() %>% sum()
+# 
+# columns_with_missing_data <- function(df, threshold = 0.5) {
+#   # Calculate percentage of missing values for each column
+#   missing_percentages <- colMeans(is.na(df))
+#   columns_to_drop <- names(missing_percentages[missing_percentages > threshold])
+#   return(columns_to_drop)
+# }
+# 
 
-columns_to_drop <- columns_with_missing_data(df, threshold = 0.05)
-df<- df %>% select(-columns_to_drop)
+# 
+# columns_to_drop <- columns_with_missing_data(df, threshold = 0.05)
+# df<- df %>% select(-columns_to_drop)
 ```
 
 ## Impute missing values with random forest
 ```{r}
-df_imputed = missRanger::missRanger(
-  df,
-  num.trees = 3,
-  sample.fraction = 0.1,
-  verbose = 1
-)
-
-df<- df_imputed
+# df_imputed = missRanger::missRanger(
+#   df,
+#   num.trees = 3,
+#   sample.fraction = 0.1,
+#   verbose = 1
+# )
+# 
+# df<- df_imputed
 ```
 
 ## non allocated transmission capacity
 ```{r}
 df |> 
-  select(date, auction_price, allocatedCapacity, ATC) |> 
-  mutate(difference_allocated = ATC - allocatedCapacity) |> 
+  select(date, auction_price_de_ch, allocatedCapacity_de_ch, ATC_de_ch) |> 
+  mutate(difference_allocated = ATC_de_ch - allocatedCapacity_de_ch) |> 
   summary()
 ```
 median is zero and mean is low, often all the capacity is allocated (al almost all) 
@@ -80,18 +80,13 @@ median is zero and mean is low, often all the capacity is allocated (al almost a
 ## Hitogram target variables
 ```{r}
 df |> 
-  select(date, auction_price, allocatedCapacity, ATC) |> 
+  select(date, auction_price_de_ch, allocatedCapacity_de_ch, ATC_de_ch) |> 
   pivot_longer(-date) |> 
   ggplot(aes(value)) +
   geom_histogram() +
   facet_wrap(~ name, scales = "free")
 ```
 auction price follows some generalized pareto distribution, allocated capacity and ATC have a bimodal distribution (hence surely not normal), and are very similar (as suggested before)
-
-```{r}
-ggplot(aes(value)) +
-  geom_line()
-```
 
 
 ## Seasonality
@@ -102,9 +97,9 @@ ggplot(aes(value)) +
 df |> 
   mutate(year = year(date))  |> 
   group_by(year) |> 
-  summarise(auction_price = mean(auction_price)) |> 
+  summarise(auction_price_de_ch = mean(auction_price_de_ch)) |> 
   ungroup() |> 
-  ggplot(aes(year, auction_price)) +
+  ggplot(aes(year, auction_price_de_ch)) +
   geom_col()
 ```
 
@@ -115,7 +110,7 @@ There does not seem to be a trend in the average auction price.
 ```{r}
 df |> 
   mutate(month = month(date)) |> 
-  ggplot(aes(month, auction_price, group = month)) +
+  ggplot(aes(month, auction_price_de_ch, group = month)) +
   geom_boxplot(outlier.colour = NA) +
   coord_cartesian(ylim = c(0, 80))
 ```
@@ -129,7 +124,7 @@ Auction prices are lower in the summer months, this may suggest that domestic CH
 ```{r}
 df |> 
   mutate(hour = hour(date)) |> 
-  ggplot(aes(hour, auction_price, group = hour)) +
+  ggplot(aes(hour, auction_price_de_ch, group = hour)) +
   geom_boxplot(outlier.colour = NA) +
   coord_cartesian(ylim = c(0, 60))
 ```
@@ -137,7 +132,7 @@ df |>
 ```{r}
 df |> 
   mutate(hour = hour(date), quarter = quarter(date)) |> 
-  ggplot(aes(hour, auction_price, group = hour)) +
+  ggplot(aes(hour, auction_price_de_ch, group = hour)) +
   geom_boxplot(outlier.colour = NA) +
   coord_cartesian(ylim = c(0, 70)) +
   facet_wrap(~ quarter, scales = "free")
@@ -146,7 +141,7 @@ df |>
 ```{r}
 df |> 
   mutate(hour = hour(date), month= month(date)) |> 
-  ggplot(aes(hour, auction_price, group = hour)) +
+  ggplot(aes(hour, auction_price_de_ch, group = hour)) +
   geom_boxplot(outlier.colour = NA) +
   coord_cartesian(ylim = c(0, 70)) +
   facet_wrap(~ month, scales = "free")
@@ -154,12 +149,15 @@ df |>
 
 We see that there are big differences between each month hourly distribution, some of them may be grouped (12,1,2 or 5,6,8), some other have specific behaviours (3, 10). One way to group would be by temperature (for example dec, jen, feb; march, november; april, october; ... )
 
+
+
+
 ## Correlation
 
 ```{r}
 # Calculate RANK (SPEARMAN) correlations between predictors and response
-correlation <- as.data.frame(cor(df[, -c(1,2,3)], df[,3], method = "spearman"))
-correlation$index=4:((nrow(correlation))+3)
+correlation <- as.data.frame(cor(df[, -c(1,2)], df[,2], method = "spearman"))
+correlation$index=3:93
 
 sorted_corr <- correlation[order(abs(correlation[,"V1"]), decreasing = T),]
 
@@ -175,11 +173,11 @@ corr_names<-colnames(df)[corr_predictors$index]
 
 library(randomForest)
 
-dfone<- df %>% select(c(corr_names,names(df[,c(1,2,3)])))
+dfone<- df %>% select(c(corr_names,names(df[,c(1,2)])))
 
 
 # Train a random forest model
-rf <- randomForest(auction_price ~ ., data = dfone)
+rf <- randomForest(auction_price_de_ch ~ ., data = dfone)
 
 # Extract feature importance
 feature_importance <- importance(rf, type = 2) %>% as.data.frame()
@@ -197,7 +195,7 @@ var_imp_names
 sqrt(rf$mse[length(rf$mse)])
 
 #SD of auction price in the sample
-sd(df$auction_price)
+sd(df$auction_price_de_ch)
 
 ```
 
@@ -213,18 +211,164 @@ date is one of the most important, suggesting seasonality
 ## Scatterplots ATC, capacity_forecast_de_lu_ch, allocatedCapacity, crossborder_actual_flow_de_lu_ch
 
 ```{r}
-plot(df$ATC, df$capacity_forecast_de_lu_ch)
+plot(df$ATC_de_ch, df$capacity_forecast_de_lu_ch)
 ```
 Clearly highly correlated (as expected), we should use only one of the two in our model
 
 
 ```{r}
-plot( df$ATC, df$allocatedCapacity)
+plot( df$ATC_de_ch, df$allocatedCapacity_de_ch)
 ```
 Same hold for these two. We shopuld just pick the most precise of the three
 
 ```{r}
-plot( df$ATC, df$crossborder_actual_flow_de_lu_ch)
+plot( df$ATC_de_ch, df$crossborder_actual_flow_de_lu_ch)
+```
+crossborder_actual_flow_de_lu_ch behaves differently and there is not a clear pattern between the two. We can include both in the model
+
+
+## Lasso
+Split train and test
+```{r}
+library(tidyverse)
+library(ggsci)
+library(scales)
+library(tidymodels)
+library(stats)
+library(AMR)
+set.seed(123)
+
+start_date = min(df$date)
+split_date = ymd_hm("2020-01-01 00:00")
+end_date = ymd_hm("2021-01-01 00:00")
+
+dt_train = df |> 
+  filter(date > start_date) |> 
+  filter(date < split_date) |> 
+  filter(date < end_date)
+
+dt_test = df |> 
+  filter(date > start_date) |> 
+  filter(date >= split_date) |> 
+  filter(date < end_date)
 ```
 
-crossborder_actual_flow_de_lu_ch behaves differently and there is not a clear pattern between the two. We can include both in the model
+```{r}
+# Create recipe
+library(recipes)
+lasso_rec = recipe(auction_price_de_ch ~ ., data = dt_train) |>
+  step_mutate(hour = hour(date)) |> 
+  step_date(date) |> 
+  update_role(date, new_role = "date") |> 
+  step_zv(all_predictors()) |> 
+  step_center(all_numeric_predictors()) |> 
+  step_scale(all_numeric_predictors()) |> 
+  step_dummy(all_nominal_predictors())
+
+
+summary(lasso_rec) |> as.data.frame()
+
+# Setting up the tuning grid
+lasso_grid <- seq(0.00001, 0.2, length.out = 25)
+
+# Tune the parameter
+train_metrics = c()
+test_metrics = c()
+
+fit_lasso = function(alpha){
+  # Setting up specifications
+  lasso_spec = linear_reg(mixture = 1, penalty = alpha) %>%
+    set_mode("regression") %>%
+    set_engine("glmnet")
+  
+  # Setting up workflow
+  lasso_wflow = workflow() |>
+    add_model(lasso_spec) |>
+    add_recipe(lasso_rec)
+  
+  # Fit the model with parameter
+  lasso_fit = lasso_wflow |> 
+    fit(dt_train)
+}
+library(parsnip)
+library(workflows)
+library(ModelMetrics)
+
+for (i in 1:length(lasso_grid)){
+  
+  # Fit lasso with parameter
+  lasso_fit = fit_lasso(alpha = lasso_grid[i])
+  
+  # Make predictions and store the metric
+  train_metrics = append(
+    train_metrics,
+    lasso_fit |> 
+      predict(dt_train) |> 
+      rmse(dt_train$auction_price_de_ch, .pred) |> 
+      pull(.estimate)
+  )
+  
+  test_metrics = append(
+    test_metrics,
+    lasso_fit |> 
+      predict(dt_test) |> 
+      rmse(dt_test$auction_price_de_ch, .pred) |> 
+      pull(.estimate)
+  )
+  
+  print(paste(i, "done out of", length(lasso_grid)))
+}
+
+
+str(df)
+
+tuning_results = tibble(
+  alpha = lasso_grid,
+  train = train_metrics,
+  test = test_metrics
+) 
+
+tuning_results |> 
+  pivot_longer(-alpha) |> 
+  mutate(value = value^2) |> 
+  ggplot(aes(alpha, value, colour = name)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Train and Test MSE by Penalty")
+
+```
+
+
+```{r}
+# Fitting the model
+lasso_fit = fit_lasso(alpha = lasso_grid[5]) #intersect test and train
+
+# Predictions vs actuals in-sample
+lasso_fit |> 
+  augment(dt_train) |>  
+  ggplot(aes(auction_price_de_ch, .pred)) +
+  geom_point(alpha = 0.2, colour = "midnightblue", size = 2) +
+  geom_abline(lty = "dashed", colour = "grey50") +
+  scale_x_continuous(labels = scales::comma_format()) +
+  scale_y_continuous(labels = scales::comma_format()) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+# Predictions vs actuals out-of-sample
+lasso_fit |> 
+  augment(dt_test) |>  
+  ggplot(aes(auction_price_de_ch, .pred)) +
+  geom_point(alpha = 0.2, colour = "midnightblue", size = 2) +
+  geom_abline(lty = "dashed", colour = "grey50") +
+  scale_x_continuous(labels = scales::comma_format()) +
+  scale_y_continuous(labels = scales::comma_format()) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+# Get the variables that remained in the model
+lasso_coef <- lasso_fit |> 
+  tidy() |> 
+  filter(estimate > 0, 
+         ! str_detect(term, "Intercept")) |> 
+  pull(term)
+```
