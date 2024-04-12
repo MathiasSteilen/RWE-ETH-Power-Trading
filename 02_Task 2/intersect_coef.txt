@@ -1,5 +1,0 @@
-day_ahead_price_ch
-day_ahead_price_fr
-fossil_brown_coal_lignite_actual_aggregated_de
-fossil_gas_actual_aggregated_de
-hydro_pumped_storage_actual_aggregated_at
