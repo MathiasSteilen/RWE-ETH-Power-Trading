@@ -36,8 +36,8 @@ Select variables based on availability (NA) and variance, ensuring conversion to
 
 ```{r}
 # Read data - both direction JAO
-data_ch_de = read_csv("../00_Data Retrieval and Cleaning/0_df_final_ch-de_UTC.csv")
-data_de_ch = read_csv("../00_Data Retrieval and Cleaning/0_df_final_de-ch_UTC.csv")
+data_ch_de = read_csv("../00 Data Retrieval and Cleaning/0_df_final_ch-de_UTC.csv")
+data_de_ch = read_csv("../00 Data Retrieval and Cleaning/0_df_final_de-ch_UTC.csv")
 
 data_ch_de <- data_ch_de %>%
   rename(auction_price_ch_de = auction_price,
@@ -48,7 +48,6 @@ df <- data_ch_de %>%
   mutate(auction_price_de_ch = data_de_ch$auction_price, 
          allocatedCapacity_de_ch= data_de_ch$allocatedCapacity, 
          ATC_de_ch= data_de_ch$ATC) %>% 
-  select(-dst) %>% 
   arrange(date)
 
 rm(data_ch_de, data_de_ch)
@@ -105,63 +104,73 @@ tibble(
                      labels = percent_format())
 ```
 
-Agree with M. to limit ourselves with the 30% (/10%)
+We are limiting ourselves to >60% of missing data columns being discarded. Discard them:
 
-Visualise the missingness in those columns that have missing values:
+```{r}
+# Discard the columns with too many missing values (threshold 70%)
+df = df |> 
+  select(-(df |> 
+             is.na() |> 
+             colMeans() |> 
+             enframe() |> 
+             filter(value > 0.6) |> 
+             pull(name)))
+```
+
+These two columns are not missing at random, they're pumped storage values, fill the NA values with zero:
 
 ```{r}
 df |> 
-  select(
-    colMeans(is.na(df)) |> 
-      enframe() |>
-      filter(value > 0.3) |> 
-      pull(name)
-  ) |> 
-  naniar::vis_miss(warn_large_data = F)
+  select(hydro_pumped_storage_actual_aggregated_fr,
+         hydro_pumped_storage_actual_consumption_fr) |> 
+  is.na() |> 
+  colMeans()
+
+df |> 
+  select(hydro_pumped_storage_actual_aggregated_fr,
+         hydro_pumped_storage_actual_consumption_fr) |> 
+  mutate(tmp = xor(is.na(hydro_pumped_storage_actual_aggregated_fr),
+                   is.na(hydro_pumped_storage_actual_consumption_fr))) |> 
+  summarise(xor_missing = mean(tmp))
+
+df |> 
+  slice(5200:5300) |> 
+  select(date, 
+         hydro_pumped_storage_actual_aggregated_fr,
+         hydro_pumped_storage_actual_consumption_fr) |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(date, value, colour = name)) +
+  geom_line()
+
+df = df |> 
+  mutate(
+    hydro_pumped_storage_actual_aggregated_fr = ifelse(
+      is.na(hydro_pumped_storage_actual_aggregated_fr),
+      0,
+      hydro_pumped_storage_actual_aggregated_fr
+    ),
+    hydro_pumped_storage_actual_consumption_fr = ifelse(
+      is.na(hydro_pumped_storage_actual_consumption_fr),
+      0,
+      hydro_pumped_storage_actual_consumption_fr
+    )
+  )
 ```
 
-Notice that two variables present a pattern: when one is present the other is missing and viceversa.
-
-```{r}
-subset_columns <- c('hydro_pumped_storage_actual_aggregated_fr', 'hydro_pumped_storage_actual_consumption_fr')
-
-other_name <- df |> 
-  select(
-    colMeans(is.na(df)) |> 
-      enframe() |>
-      filter(value < 0.3) |> 
-  pull(name)) %>% 
-  colnames()
-      
-    
-subset_columns <- c(subset_columns, other_name)
-
-
-df <- df %>% 
-  select(subset_columns)
-```
+Let's visualise the missingness in the rest of the variables:
 
 ```{r}
 df |> 
-  select(
-    colMeans(is.na(df)) |> 
-      enframe() |>
-      filter(value > 0) |> 
-      pull(name)
-  ) |> 
   naniar::vis_miss(warn_large_data = F)
 ```
-
-
-
-
 
 Remove forecast values as we are using the actuals instead:
 
 Before imputation remove other variables based on following:
 
 There are columns that contains forecast and other that contains the actual value.
-We decided to use keep only the actual data for those variables that also have a forecast, since we can not trace back when the forecast was received by the traders.
+
+We decided to use keep only the actual data for those variables that also have a forecast for, since we can not trace back when the forecast was received by the traders.
 
 ```{r}
 # Identify columns containing "actual" and "forecast" using grep
@@ -182,15 +191,28 @@ df <- df %>%
 ```
 
 ```{r}
-df <- df %>%
-  mutate(across(everything(), ~if(is.na(.),0)),
-         across(everything(), ~if_else(is.na(.), 1, 0), .names = "{.col}_is_missing"))
+df |> 
+  write_csv("../00 Data Retrieval and Cleaning/0_df_final_not_imputed.csv")
 ```
 
+### Imputation with Zero and Include Dummies for Missing
 
+```{r}
+df = bind_cols(
+  df |> select(date),
+  df |> 
+    select(-date) |> 
+    mutate(
+      across(everything(), function(x) if_else(is.na(x), 0, x)),
+      across(everything(), ~ if_else(is.na(.), 1, 0),
+             .names = "{.col}_is_missing")
+    )
+)
+```
+
+```{r}
+df |> 
+  write_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed.csv")
+```
 
 Save the dataset in a file so we can use it in the future with the same imputation.
-
-```{r, eval=FALSE}
-write.csv(df, "data_dummy_UTC.csv", row.names = FALSE)
-```
