@@ -1,0 +1,15 @@
+pandas
+polars
+plotnine
+numpy
+blackcellmagic
+IPython
+requests
+tqdm
+pytz
+PyYAML
+jao-py
+entsoe-py
+torch
+scikit-learn
+lightning
