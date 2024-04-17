@@ -2,6 +2,9 @@ rm(list = ls())
 library(tidyverse)
 library(corrplot)
 
+
+#diopo'
+
 #Import data
 setwd("path")
 data <- read.csv('0_df_final_ch-de.csv')
