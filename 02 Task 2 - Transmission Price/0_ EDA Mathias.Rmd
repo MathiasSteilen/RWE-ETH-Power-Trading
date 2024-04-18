@@ -1,0 +1,668 @@
+---
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(ggsci)
+library(scales)
+library(tidymodels)
+
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Default theme for charts
+theme_set(
+  theme_bw() +
+    theme(  
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(
+        face = "italic", size = 10, colour = "grey50"
+      )
+    )
+)
+
+```
+
+<!-- ## The Goal -->
+
+<!-- The goal of this EDA is to better understand what drives the JAO transmission capacity prices from DE to CH. -->
+
+<!-- Output: Have a subset of variables that will be selected for modelling. -->
+
+```{r}
+# Read data
+df = read_csv("../00_Data Retrieval and Cleaning/0_df_final_ch-de_UTC.csv") |> 
+  arrange(date) |> 
+  select(-c(ATC))
+
+dim(df)
+```
+
+
+Variables to remove:
+
+```{r}
+df = df |> 
+  # zero variance
+  select(
+    -c(
+      biomass_actual_consumption_at,
+      fossil_gas_actual_consumption_at, fossil_hard_coal_actual_consumption_at,
+      fossil_oil_actual_aggregated_at, fossil_oil_actual_consumption_at,
+      geothermal_actual_aggregated_at, geothermal_actual_consumption_at,
+      `hydro_run-of-river_and_poundage_actual_consumption_at`,
+      hydro_water_reservoir_actual_consumption_at,
+      other_actual_aggregated_at, other_actual_consumption_at,
+      other_renewable_actual_aggregated_at,
+      other_renewable_actual_consumption_at, solar_actual_consumption_at,
+      waste_actual_aggregated_at,
+      waste_actual_consumption_at, wind_onshore_actual_consumption_at)
+  ) 
+```
+
+### Missing value
+
+How many columns have more than x% missing data?
+
+```{r}
+tibble(
+  percentage = seq(0.01, 0.99, by = 0.01),
+  cols = map_dbl(percentage, function(pct){
+    df |> 
+      select(
+        colMeans(is.na(df)) |> 
+          enframe() |>
+          filter(value > pct) |> 
+          pull(name) 
+      ) |> 
+      ncol()
+  })
+) |> 
+  ggplot(aes(percentage, cols)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Number of columns with more than x% missing values",
+       y = "# of cols", x = "Minimum Missing Percentage") +
+  scale_x_continuous(breaks = seq(0, 1, 0.1), labels = percent_format())
+```
+
+From this chart, I'd say we can set the limit at 10% and drop all that have more than that.
+
+```{r}
+df = df |> 
+  select(
+    colMeans(is.na(df)) |> 
+      enframe() |>
+      filter(value < 0.1) |> 
+      pull(name) 
+  )
+```
+
+Visualise the missingness in those columns that still have missing values:
+
+```{r}
+df |> 
+  select(
+    colMeans(is.na(df)) |> 
+      enframe() |>
+      filter(value > 0) |> 
+      pull(name)
+  ) |> 
+  naniar::vis_miss(warn_large_data = F)
+```
+
+Impute the missing values with Random Forest:
+
+```{r}
+df_imputed = missRanger::missRanger(
+  df,
+  num.trees = 50,
+  # sample.fraction = 0.1,
+  verbose = 1
+)
+```
+
+```{r}
+df = df_imputed
+```
+
+```{r}
+df |> 
+  is.na() |>
+  colMeans()
+```
+
+```{r}
+df |> 
+  write_csv("../00_Data Retrieval and Cleaning/0_df_final_ch-de_UTC_removedconstant_removedmissing_imputed.csv")
+```
+
+### The Target Variable
+
+```{r}
+df |> 
+  select(date, auction_price, allocatedCapacity, ATC) |> 
+  mutate(difference_allocated = ATC - allocatedCapacity) |> 
+  summary()
+```
+
+```{r}
+df |> 
+  select(date, auction_price, allocatedCapacity) |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(value)) +
+  geom_histogram() +
+  facet_wrap(~ name, scales = "free")
+```
+
+```{r}
+df |> 
+  select(date, auction_price, allocatedCapacity, ATC) |> 
+  ggplot(aes(date, auction_price)) +
+  geom_line()
+```
+
+Prices are zero often, the increase in electricity prices has driven prices higher in 2022.
+
+Generally, the higher the spread, the higher the auction price (makes sense), but there are plenty of times still where the JAO price is much too low. This chart does not reveal a structural mispricing of the auction.
+
+```{r}
+df |> 
+  transmute(auction_price, spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  ggplot(aes(spread, auction_price)) +
+  geom_point(alpha = 0.3) +
+  geom_abline()
+```
+
+### Seasonality of target
+
+Distribution by year, month, week, day of week, hour in day
+
+```{r}
+df |> 
+  mutate(year = year(date))  |> 
+  group_by(year) |> 
+  summarise(auction_price = mean(auction_price)) |> 
+  ungroup() |> 
+  ggplot(aes(year, auction_price)) +
+  geom_col()
+```
+
+There does not seem to be a trend in the average auction price.
+
+```{r}
+df |> 
+  mutate(month = month(date)) |> 
+  ggplot(aes(month, auction_price, group = month)) +
+  geom_boxplot(outlier.colour = NA) +
+  coord_cartesian(ylim = c(0, 2.5))
+```
+
+Auction prices are higher in the summer months, this ties in well with the spread being positive much more often over the summer months:
+
+```{r}
+df |> 
+  transmute(date, auction_price, 
+            spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  mutate(month = month(date)) |> 
+  ggplot(aes(month, spread, group = month)) +
+  geom_boxplot(outlier.colour = NA) +
+  coord_cartesian(ylim = c(-75, 50))
+
+df |> 
+  transmute(date, auction_price, 
+            spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  mutate(month = month(date)) |> 
+  group_by(month) |> 
+  summarise(positive = mean(spread > 0)) |> 
+  ggplot(aes(month, positive)) +
+  geom_line() +
+  geom_point() +
+  labs(y = "Fraction of positive spread hours", x = "Month in year")
+```
+
+Similar picture for week in year:
+
+```{r}
+df |> 
+  mutate(week = week(date)) |> 
+  ggplot(aes(week, auction_price, group = week)) +
+  geom_boxplot(outlier.colour = NA) +
+  coord_cartesian(ylim = c(0, 2.5))
+
+df |> 
+  transmute(date, auction_price, 
+            spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  mutate(week = week(date)) |> 
+  group_by(week) |> 
+  summarise(positive = mean(spread > 0)) |> 
+  ggplot(aes(week, positive)) +
+  geom_line() +
+  geom_point() +
+  labs(y = "Fraction of positive spread hours", x = "Month in year")
+```
+
+Slight structure in weekday which is not really backed up by the spread.
+
+```{r}
+df |> 
+  mutate(dow = wday(date)) |> 
+  ggplot(aes(dow, auction_price, group = dow)) +
+  geom_boxplot(outlier.colour = NA) +
+  coord_cartesian(ylim = c(0, 0.5))
+
+df |> 
+  transmute(date, auction_price, 
+            spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  mutate(dow = wday(date)) |> 
+  group_by(dow) |> 
+  summarise(positive = mean(spread > 0)) |> 
+  ggplot(aes(dow, positive)) +
+  geom_line() +
+  geom_point() +
+  labs(y = "Fraction of positive spread hours", x = "Month in year")
+```
+
+There is a VERY strong structure in the hour in day.
+
+```{r}
+df |> 
+  mutate(hour = hour(date)) |> 
+  ggplot(aes(hour, auction_price, group = hour)) +
+  geom_boxplot(outlier.colour = NA) +
+  coord_cartesian(ylim = c(0, 3))
+
+df |> 
+  transmute(date, auction_price, 
+            spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  mutate(hour = hour(date)) |> 
+  group_by(hour) |> 
+  summarise(positive = mean(spread > 0)) |> 
+  ggplot(aes(hour, positive)) +
+  geom_line() +
+  geom_point() +
+  labs(y = "Fraction of positive spread hours", x = "Month in year")
+```
+
+Dig into this by quarter: Weirdly, the spread exhibits a similar structure but the JAO pricing does not. Analyse the mispricing below.
+
+```{r}
+df |> 
+  mutate(hour = hour(date), quarter = quarter(date)) |> 
+  ggplot(aes(hour, auction_price, group = hour)) +
+  geom_boxplot(outlier.colour = NA) +
+  coord_cartesian(ylim = c(0, 3)) +
+  facet_wrap(~ quarter, scales = "free")
+
+df |> 
+  transmute(date, auction_price, 
+            spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  mutate(hour = hour(date), quarter = quarter(date)) |> 
+  group_by(hour, quarter) |> 
+  summarise(positive = mean(spread > 0)) |> 
+  ungroup() |> 
+  ggplot(aes(hour, positive)) +
+  geom_line() +
+  geom_point() +
+  labs(y = "Fraction of positive spread hours", x = "Month in year") +
+  facet_wrap(~ quarter, scales = "free")
+```
+
+### Over vs. underpaying
+
+Definitions:
+- Overpaying: JAO Price > Spread
+- Underpaying: JAO Price < Spread
+
+Attention: This only holds in situation where spread > 0.
+
+```{r}
+df |> 
+  transmute(date, auction_price, 
+            spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  filter(spread > 0) |> 
+  mutate(hour = hour(date), quarter = quarter(date)) |> 
+  group_by(hour, quarter) |> 
+  summarise(overpaid = mean(auction_price > spread)) |> 
+  ungroup() |> 
+  ggplot(aes(hour, overpaid)) +
+  geom_line() +
+  geom_point() +
+  labs(y = "Fraction of overpaying", x = "Month in year") +
+  facet_wrap(~ quarter, scales = "free")
+
+df |>
+  transmute(date, auction_price, 
+            spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  filter(spread > 0) |> 
+  mutate(delta = spread - auction_price) |> 
+  mutate(hour = hour(date), quarter = quarter(date)) |> 
+  ggplot(aes(hour, delta, group = hour)) +
+  geom_boxplot(outlier.colour = NA) +
+  facet_wrap(~ quarter, scales = "free") +
+  coord_cartesian(ylim = c(-10, 20)) +
+  geom_hline(yintercept = 0, colour = "red") +
+  labs(title = "Delta: Spread minus JAO (implicitly profit)")
+```
+
+JAO is a lot more competitive in the summer as the spread if more positive in these situations.
+
+### Seasonality of spread
+
+```{r}
+df |>
+  transmute(date, auction_price, 
+            spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  mutate(hour = hour(date), quarter = quarter(date)) |> 
+  ggplot(aes(hour, spread, group = hour)) +
+  geom_boxplot(outlier.colour = NA) +
+  facet_wrap(~ quarter, scales = "free") +
+  coord_cartesian(ylim = c(-100, 40)) +
+  geom_hline(yintercept = 0, colour = "red") +
+  labs(title = "Spread: Germany minus Switzerland")
+```
+
+The spread follows the duck curve in the Summer.
+
+```{r}
+df |>
+  transmute(date, day_ahead_price_de, day_ahead_price_ch) |> 
+  mutate(hour = hour(date), quarter = quarter(date)) |>
+  pivot_longer(-c(date, quarter, hour)) |> 
+  group_by(hour, quarter, name) |> 
+  summarise(price = mean(value)) |> 
+  ggplot(aes(hour, price, colour = name)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~ quarter, nrow = 1) +
+  labs(title = "Spot Prices")
+```
+
+```{r}
+df |>
+  transmute(date, day_ahead_price_de, day_ahead_price_ch) |> 
+  mutate(month = month(date)) |>
+  pivot_longer(-c(date, month)) |> 
+  group_by(month, name) |> 
+  summarise(price = mean(value)) |> 
+  ggplot(aes(month, price, colour = name)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Spot Prices")
+```
+
+
+```{r}
+df |>
+  transmute(date, day_ahead_price_de, day_ahead_price_ch) |> 
+  mutate(month = month(date)) |>
+  pivot_longer(-c(date, month)) |> 
+  ggplot(aes(factor(month), value, fill = name)) +
+  geom_boxplot(outlier.colour = NA) +
+  coord_cartesian(ylim = c(-50, 300)) +
+  labs(title = "Spot Prices")
+```
+
+### Correlation Plot
+
+```{r}
+corrplot::corrplot(
+  cor(
+    df |> 
+      select(where(is.numeric))
+  ), 
+  method = "color", diag = T, type = "upper",
+  tl.cex = 0.75, tl.col = "black"
+)
+```
+
+
+### Variable selection with LASSO
+
+```{r}
+fit_lasso <- function(lambda, tbl){
+  lasso_fit <- workflow() %>%
+    add_model(linear_reg(mixture = 1, penalty = lambda) %>%
+                set_mode("regression") %>%
+                set_engine("glmnet")) %>%
+    add_recipe(
+      recipe(auction_price ~ ., data = tbl) |>
+        step_mutate(hour = hour(date)) |> 
+        step_date(date) |> 
+        update_role(date, new_role = "date") |> 
+        step_zv(all_predictors()) |> 
+        step_center(all_numeric_predictors()) |> 
+        step_scale(all_numeric_predictors()) |> 
+        step_dummy(all_nominal_predictors())
+    ) %>%
+    fit(tbl) %>%
+    tidy() %>%
+    filter(term != "(Intercept)",
+           estimate != 0)
+  
+  return(lasso_fit)
+  
+}
+
+fit_lasso(0.01, df) %>%
+  head()
+```
+
+```{r}
+lambda_fits <- tibble(
+  lambdas = seq(0, 2, length.out = 25),
+  coefs = map(lambdas, ~ fit_lasso(.x, df)),
+  n_coefs = map(coefs, ~ nrow(.x))
+) %>%
+  unnest(n_coefs)
+
+lambda_fits
+```
+
+```{r}
+lambda_fits %>%
+  ggplot(aes(lambdas, n_coefs)) +
+  geom_point() +
+  geom_line() +
+  labs(title = "Number of Predictors in LASSO as a Function of Penalty",
+       y = "Number of Predictors",
+       x = "Lambda") +
+  scale_y_log10(labels = comma_format(), breaks = 10^(0:3),
+                limits = c(1, NA)) +
+  scale_x_continuous(labels = comma_format())
+```
+
+#### Tuning and training the lasso model
+
+```{r}
+start_date = min(df$date)
+split_date = ymd_hm("2020-01-01 00:00")
+end_date = ymd_hm("2021-01-01 00:00")
+
+dt_train = df |> 
+  filter(date > start_date) |> 
+  filter(date < split_date) |> 
+  filter(date < end_date)
+
+dt_test = df |> 
+  filter(date > start_date) |> 
+  filter(date >= split_date) |> 
+  filter(date < end_date)
+```
+
+```{r}
+# Create recipe
+lasso_rec = recipe(auction_price ~ ., data = dt_train) |>
+  step_mutate(hour = hour(date)) |> 
+  step_date(date) |> 
+  update_role(date, new_role = "date") |> 
+  step_zv(all_predictors()) |> 
+  step_center(all_numeric_predictors()) |> 
+  step_scale(all_numeric_predictors()) |> 
+  step_dummy(all_nominal_predictors())
+
+lasso_rec |> prep() |> juice()
+
+summary(lasso_rec) |> as.data.frame()
+
+# Setting up the tuning grid
+lasso_grid <- seq(0.00001, 0.1, length.out = 25)
+
+# Tune the parameter
+train_metrics = c()
+test_metrics = c()
+
+fit_lasso = function(alpha){
+  # Setting up specifications
+  lasso_spec = linear_reg(mixture = 1, penalty = alpha) %>%
+    set_mode("regression") %>%
+    set_engine("glmnet")
+  
+  # Setting up workflow
+  lasso_wflow = workflow() |>
+    add_model(lasso_spec) |>
+    add_recipe(lasso_rec)
+  
+  # Fit the model with parameter
+  lasso_fit = lasso_wflow |> 
+    fit(dt_train)
+}
+
+for (i in 1:length(lasso_grid)){
+  
+  # Fit lasso with parameter
+  lasso_fit = fit_lasso(alpha = lasso_grid[i])
+  
+  # Make predictions and store the metric
+  train_metrics = append(
+    train_metrics,
+    lasso_fit |> 
+      predict(dt_train) |> 
+      mutate(actual = dt_train$auction_price) |> 
+      rmse(actual, .pred) |> 
+      pull(.estimate)
+  )
+  
+  test_metrics = append(
+    test_metrics,
+    lasso_fit |> 
+      predict(dt_test) |> 
+      mutate(actual = dt_test$auction_price) |> 
+      rmse(actual, .pred) |> 
+      pull(.estimate)
+  )
+  
+  print(paste(i, "done out of", length(lasso_grid)))
+}
+
+tuning_results = tibble(
+  alpha = lasso_grid,
+  train = train_metrics,
+  test = test_metrics
+) 
+
+tuning_results |> 
+  pivot_longer(-alpha) |> 
+  mutate(value = value^2) |> 
+  ggplot(aes(alpha, value, colour = name)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Train and Test MSE by Penalty")
+
+# Fitting the model
+lasso_fit = fit_lasso(alpha = 0.0125)
+
+# Predictions vs actuals in-sample
+lasso_fit |> 
+  augment(dt_train) |>  
+  ggplot(aes(auction_price, .pred)) +
+  geom_point(alpha = 0.2, colour = "midnightblue", size = 2) +
+  geom_abline(lty = "dashed", colour = "grey50") +
+  scale_x_continuous(labels = scales::comma_format()) +
+  scale_y_continuous(labels = scales::comma_format()) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+# Predictions vs actuals out-of-sample
+lasso_fit |> 
+  augment(dt_test) |>  
+  ggplot(aes(auction_price, .pred)) +
+  geom_point(alpha = 0.2, colour = "midnightblue", size = 2) +
+  geom_abline(lty = "dashed", colour = "grey50") +
+  scale_x_continuous(labels = scales::comma_format()) +
+  scale_y_continuous(labels = scales::comma_format()) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+# Get the variables that remained in the model
+lasso_fit |> 
+  tidy() |> 
+  filter(estimate > 0, 
+         ! str_detect(term, "Intercept")) |> 
+  pull(term)
+```
+
+### Variable Importance with Random Forest
+
+Should give a general impression of which variables might be important
+
+```{r}
+# Create recipe
+rf_rec = recipe(auction_price ~ ., data = dt_train) |>
+  step_mutate(hour = hour(date)) |> 
+  step_date(date) |> 
+  update_role(date, new_role = "date") |> 
+  step_zv(all_predictors()) |> 
+  step_center(all_numeric_predictors()) |> 
+  step_scale(all_numeric_predictors())
+
+rf_rec |> prep() |> juice()
+
+summary(rf_rec) |> as.data.frame()
+
+# Setting up specifications
+rf_spec = rand_forest() |>
+  set_engine("ranger", importance = "impurity") |>
+  set_mode("regression")
+
+# Setting up workflow
+rf_wflow = workflow() |>
+  add_model(rf_spec) |>
+  add_recipe(rf_rec)
+
+# Fitting the model
+rf_fit = rf_wflow |> 
+  fit(dt_train)
+
+# Predictions vs actuals in-sample
+rf_fit |> 
+  augment(dt_train) |>  
+  ggplot(aes(auction_price, .pred)) +
+  geom_point(alpha = 0.2, colour = "midnightblue", size = 2) +
+  geom_abline(lty = "dashed", colour = "grey50") +
+  scale_x_continuous(labels = scales::comma_format()) +
+  scale_y_continuous(labels = scales::comma_format()) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+# Get feature importance
+rf_fit |>
+  extract_fit_parsnip() |>
+  vip::vi() |> 
+  as_tibble() |> 
+  slice_max(order_by = Importance, n = 50) %>% 
+  ggplot(aes(Importance, reorder(Variable, Importance))) +
+  geom_col(fill = "midnightblue", colour = "white") +
+  labs(title = "Variable Importance",
+       subtitle = "Only the most important predictors are shown.",
+       y = "Predictor",
+       x = "Relative Variable Importance") +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", size = 12),
+        plot.subtitle = element_text(face = "italic", colour = "grey50"))
+
+```
+
