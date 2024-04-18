@@ -1,5 +1,5 @@
 ---
-title: "Data cleaning"
+title: "ARIMAX"
 author: "Federico Deotto"
 date: "2024-03-12"
 output: html_document
@@ -13,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(ggsci)
 library(scales)
-# library(tidymodels)
+
 
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 
@@ -36,141 +36,149 @@ Select variables based on availability (NA) and variance, ensuring conversion to
 
 ```{r}
 # Read data - both direction JAO
-data_ch_de = read_csv("../00_Data Retrieval and Cleaning/0_df_final_ch-de_UTC.csv")
-data_de_ch = read_csv("../00_Data Retrieval and Cleaning/0_df_final_de-ch_UTC.csv")
+df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed.csv")
 
-data_ch_de <- data_ch_de %>%
-  rename(auction_price_ch_de = auction_price,
-         allocatedCapacity_ch_de = allocatedCapacity, ATC_ch_de = ATC)
-
-#Initialize df that contain ALL variables
-df <- data_ch_de %>% 
-  mutate(auction_price_de_ch = data_de_ch$auction_price, 
-         allocatedCapacity_de_ch= data_de_ch$allocatedCapacity, 
-         ATC_de_ch= data_de_ch$ATC) %>% 
-  select(-dst) %>% 
-  arrange(date)
-
-rm(data_ch_de, data_de_ch)
+df$date %>% str()
 ```
 
-
-Remove the most recent rows that contains NA:
+Convert dummies for missing values and variable dst into factor, and ensure that all numeric colums are encoded as such.
 
 ```{r}
-split_date = ymd_hm("2024-01-31 23:00")
-df <- df %>% 
-  filter(date < split_date)
+df <- df %>%
+  mutate_at(vars(-date), as.numeric)
+
+dummies_columns <- df %>%
+  select(contains("_missing_dummy")) %>% 
+  colnames()
+
+factor_colums <- c('dst', dummies_columns)
+
+df <- df %>%
+  mutate_at(vars(factor_colums), factor)
 ```
 
 
-Find and remove zero variance variables:
+# Cutting of time series 
+
+The timestamps are selected arbitrarily. The guiding idea behind the choice was to roughly recover some stationarity conditions in the log-transformed price.
+```{r}
+first_cut <- as.POSIXct("2021-06-30 23:00:00", tz = "UTC")
+second_cut <- as.POSIXct("2022-12-31 23:00:00", tz = "UTC")
+```
+
+Create a data.frame that contains exclusively the log_transfo of the four prices and their timestamp (date).
+```{r}
+prices_name <- c('day_ahead_price_de', 
+                 'day_ahead_price_ch',
+                 'auction_price_ch_de',
+                 'auction_price_de_ch')
+df_box <- df %>% 
+  select(c('date', prices_name))
+
+#log_transform <- function(x) {
+#  log_shifted <- log(x - min(x) + 1)  # Shift all values to ensure positivity
+#  return(log_shifted)
+#}
+
+boxcox_transform <- function(x, lambda) {
+  if (lambda == 0) {
+    log(x - min(x) + 1)
+  } else {
+    (x^lambda - 1) / lambda
+  }
+}
+
+
+df_box <- df_box %>%
+  mutate_at(vars(all_of(prices_name)), ~ boxcox_transform(., lambda = 0))
+```
+
 
 ```{r}
-remove_cols = df |> 
-  select(-c(date)) |> 
-  pivot_longer(everything()) |> 
-  group_by(name) |> 
-  summarise(var = var(value, na.rm = T)) |> 
-  ungroup() |> 
-  filter(var < 1e-10) |> 
-  pull(name)
-
-df = df |> 
-  select(!all_of(remove_cols))
+# Make the chart
+df_box %>% 
+  filter(date < first_cut) %>% 
+  ggplot(aes(x = date)) +
+  geom_line(aes(y = day_ahead_price_de, color = "day_ahead_price_de")) +
+  geom_line(aes(y = day_ahead_price_ch, color = "day_ahead_price_ch")) +
+  labs(title = "Prices First Period",
+       x = "Hourly data",
+       y = "Price day ahead",
+       color = "Day ahead prices") +
+  scale_color_manual(values = c("day_ahead_price_de" = "blue", "day_ahead_price_ch" = "red"))+
+  theme_minimal()
 ```
 
-### Missing value
-
-How many columns have more than x% missing data?
 
 ```{r}
-tibble(
-  percentage = seq(0.01, 0.99, by = 0.01),
-  cols = map_dbl(percentage, function(pct){
-    df |> 
-      select(
-        colMeans(is.na(df)) |> 
-          enframe() |>
-          filter(value > pct) |> 
-          pull(name) 
-      ) |> 
-      ncol()
-  })
-) |> 
-  ggplot(aes(percentage, cols)) +
-  geom_line() +
-  geom_point() +
-  labs(title = "Number of columns with more than x% missing values",
-       y = "# of cols", x = "Minimum Missing Percentage") +
-  scale_x_continuous(breaks = seq(0, 1, 0.1), 
-                     labels = percent_format())
+# Make the chart
+df_box %>% 
+  filter(date < second_cut & date >= first_cut) %>% 
+  ggplot(aes(x = date)) +
+  geom_line(aes(y = day_ahead_price_de, color = "day_ahead_price_de")) +
+  geom_line(aes(y = day_ahead_price_ch, color = "day_ahead_price_ch")) +
+  labs(title = "Prices Second Period",
+       x = "Hourly data",
+       y = "Price day ahead",
+       color = "Day ahead prices") +
+  scale_color_manual(values = c("day_ahead_price_de" = "blue", "day_ahead_price_ch" = "red"))+
+  theme_minimal()
 ```
 
-Agree with M. to limit ourselves with the 30% (/10%)
 
 ```{r}
-df = df |> 
-  select(
-    colMeans(is.na(df)) |> 
-      enframe() |>
-      filter(value < 0.3) |> 
-      pull(name) 
-  )
+# Make the chart
+df_box %>% 
+  filter(date > second_cut) %>% 
+  ggplot(aes(x = date)) +
+  geom_line(aes(y = day_ahead_price_de, color = "day_ahead_price_de")) +
+  geom_line(aes(y = day_ahead_price_ch, color = "day_ahead_price_ch")) +
+  labs(title = "Prices Third Period",
+       x = "Hourly data",
+       y = "Price day ahead",
+       color = "Day ahead prices") +
+  scale_color_manual(values = c("day_ahead_price_de" = "blue", "day_ahead_price_ch" = "red"))+
+  theme_minimal()
 ```
 
-Visualise the missingness in those columns that still have missing values:
+
+We can see that the log_transfo is not good with the auction_prices. Try another boxCox transfo in order to take care of skewness. The interpretability of the final modell will be compromise, since the log transfo guarantees an interpretation of the coef in terms of percentage change.
 
 ```{r}
-df |> 
-  select(
-    colMeans(is.na(df)) |> 
-      enframe() |>
-      filter(value > 0) |> 
-      pull(name)
-  ) |> 
-  naniar::vis_miss(warn_large_data = F)
+# Make the chart
+df_box %>% 
+  filter(date < first_cut) %>% 
+  ggplot(aes(x = date)) +
+  geom_line(aes(y = auction_price_ch_de, color = "auction_price_ch_de")) +
+  geom_line(aes(y = auction_price_de_ch, color = "auction_price_de_ch")) +
+  labs(title = "Prices Second Period",
+       x = "Hourly data",
+       y = "Price day ahead",
+       color = "Day ahead prices") +
+  scale_color_manual(values = c("auction_price_de_ch" = "green", "auction_price_ch_de" = "blue" ))+
+  theme_minimal()
 ```
-
-Remove forecast values as we are using the actuals instead:
-
-Before imputation remove other variables based on following:
-
-There are columns that contains forecast and other that contains the actual value.
-We decided to use keep only the actual data for those variables that also have a forecast, since we can not trace back when the forecast was received by the traders.
 
 ```{r}
-# Identify columns containing "actual" and "forecast" using grep
-actual_columns <- grep("actual", names(df), value = TRUE)
-forecast_columns <- grep("forecast", names(df), value = TRUE)
-print(actual_columns)
-print('')
-print(forecast_columns)
+auction_price <- prices_name[3:4]
+df_box[, auction_price] <- df[, auction_price]
+
+df_box <- df_box %>%
+  mutate_at(vars(all_of(auction_price)), ~ boxcox_transform(., lambda = 0.03))
 ```
 
-The solar_forecast_country and the solar_actual_aggregated_country express similar quantities: the former is a forecast of wind and solar power generation as an average of forecasted power output per Market Time Unit and per bidding zone, while the latter expresses the actual aggregated output per Market Time Unit (sum). Since we cannot recover the exact time when the forecasts are published (when the forecasts are available to traders), and we can assume that the forecasts nowadays are accurate, we decided to remove the forecasts. This reasoning is also applied to other variables.
 
 ```{r}
-remove_forecast <- c('solar_forecast_fr', 'solar_forecast_ch', 'solar_forecast_it','solar_forecast_at', 'wind_offshore_forecast_de', 'wind_onshore_forecast_de', 'wind_onshore_forecast_ch', 'wind_onshore_forecast_at')
-
-df <- df %>% 
-  select(!all_of(remove_forecast))
-```
-
-Impute the missing values with Random Forest:
-
-```{r, results=FALSE, eval=FALSE}
-set.seed(1234)
-df_imputed = missRanger::missRanger(
-  df,
-  num.trees = 3,
-  sample.fraction = 0.1,
-  verbose = 1
-)
-```
-
-Save the dataset in a file so we can use it in the future with the same imputation.
-
-```{r, eval=FALSE}
-write.csv(df_imputed, "data_cleaned_UTC.csv", row.names = FALSE)
+# Make the chart
+df_box %>% 
+  filter(date < first_cut) %>% 
+  ggplot(aes(x = date)) +
+  geom_line(aes(y = auction_price_ch_de, color = "auction_price_ch_de")) +
+  geom_line(aes(y = auction_price_de_ch, color = "auction_price_de_ch")) +
+  labs(title = "Prices Second Period",
+       x = "Hourly data",
+       y = "Price day ahead",
+       color = "Day ahead prices") +
+  scale_color_manual(values = c("auction_price_de_ch" = "green", "auction_price_ch_de" = "blue" ))+
+  theme_minimal()
 ```
