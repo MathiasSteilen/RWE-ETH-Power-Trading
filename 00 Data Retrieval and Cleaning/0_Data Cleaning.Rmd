@@ -1,7 +1,4 @@
 ---
-title: "Data cleaning"
-author: "Federico Deotto"
-date: "2024-03-12"
 output: html_document
 editor_options: 
   chunk_output_type: console
@@ -13,7 +10,6 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(ggsci)
 library(scales)
-# library(tidymodels)
 
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 
@@ -32,7 +28,9 @@ theme_set(
 
 ## The Goal
 
-Select variables based on availability (NA) and variance, ensuring conversion to the appropriate type (e.g., converting integers into numeric data).
+The goal of this document is to 1) select variables based on availability (missing values) and variance (remove zero-variance) and 2) ensure conversion to the appropriate data type (we have numerical data only, however categories, i.e. integer variables could be represented as factors).
+
+### Combining the two separate files
 
 ```{r}
 # Read data - both direction JAO
@@ -53,6 +51,7 @@ df <- data_ch_de %>%
 rm(data_ch_de, data_de_ch)
 ```
 
+### Removing missing values at the end of the dataframe
 
 Remove the most recent rows that contains NA:
 
@@ -62,8 +61,10 @@ df <- df %>%
   filter(date < split_date)
 ```
 
+### Removing zero-variance predictors
 
 Find and remove zero variance variables:
+
 ```{r}
 remove_cols = df |> 
   select(-c(date)) |> 
@@ -78,9 +79,10 @@ df = df |>
   select(!all_of(remove_cols))
 ```
 
-### Missing value
+### Removing columns that have too many missing values
 
 How many columns have more than x% missing data?
+
 ```{r}
 tibble(
   percentage = seq(0.01, 0.99, by = 0.01),
@@ -104,10 +106,10 @@ tibble(
                      labels = percent_format())
 ```
 
-We are limiting ourselves to >60% of missing data columns being discarded. Discard them:
+We decided to limit ourselves to discard columns with more than 60% of missing data:
 
 ```{r}
-# Discard the columns with too many missing values (threshold 70%)
+# Discard the columns with too many missing values (threshold 60%)
 df = df |> 
   select(-(df |> 
              is.na() |> 
@@ -117,7 +119,9 @@ df = df |>
              pull(name)))
 ```
 
-These two columns are not missing at random, they're pumped storage values, fill the NA values with zero:
+### French Pumped Storage
+
+These two columns are not missing at random, they're pumped storage values showing production and consumption, fill the NA values with zero and keep both columns:
 
 ```{r}
 df |> 
@@ -164,9 +168,9 @@ df |>
   naniar::vis_miss(warn_large_data = F)
 ```
 
-Remove forecast values as we are using the actuals instead:
+### Forecast variables
 
-Before imputation remove other variables based on following:
+Remove forecast values as we are using the actuals instead as discussed in the meeting with the supervisor.
 
 There are columns that contains forecast and other that contains the actual value.
 
@@ -190,6 +194,23 @@ df <- df %>%
   select(!all_of(remove_forecast))
 ```
 
+### Reorder and rename some variables to make it more understandable
+
+TBD
+
+```{r}
+reorder_cols = c("date", "auction_price_ch_de", "auction_price_de_ch",
+                 "allocatedCapacity_ch_de", "allocatedCapacity_de_ch",
+                 "ATC_ch_de", "ATC_de_ch")
+
+df = bind_cols(
+  df |> select(any_of(reorder_cols)),
+  df |> select(-any_of(reorder_cols))
+)
+```
+
+Write the non-imputed dataset to csv:
+
 ```{r}
 df |> 
   write_csv("../00 Data Retrieval and Cleaning/0_df_final_not_imputed.csv")
@@ -197,18 +218,71 @@ df |>
 
 ### Imputation with Zero and Include Dummies for Missing
 
+Are there missing values in the target variable?
+
 ```{r}
+df |> 
+  select(contains("auction")) |> 
+  is.na() |> 
+  colSums()
+```
+
+There are no missing values in the target variable.
+
+The imputation method used for this project after discussion with the supervisor is to fill missing values with zero and include a dummy variable indicating for each column with missing data which indicates whether data in this corresponding row is missing.
+
+```{r}
+# Identify columns with missing values
+missing_cols = df |> 
+  is.na() |> 
+  colSums() |> 
+  enframe() |> 
+  filter(value != 0) |> 
+  pull(name)
+
+# Create three different dataframes of same row length and combine them 
+# to the final data frame again
+# 1: Columns that have no missing values
+# 2: Columns that have missing values filled with zeros where missing
+# 3: Columns that have missing values transformed to dummies
+
 df = bind_cols(
-  df |> select(date),
+  # 1
   df |> 
-    select(-date) |> 
-    mutate(
-      across(everything(), function(x) if_else(is.na(x), 0, x)),
-      across(everything(), ~ if_else(is.na(.), 1, 0),
-             .names = "{.col}_is_missing")
-    )
+    select(-any_of(missing_cols)),
+  # 2
+  df |> 
+    select(any_of(missing_cols)) |> 
+    mutate(id = 1:n()) |> 
+    pivot_longer(-id) |> 
+    group_by(name) |> 
+    mutate(value = ifelse(is.na(value), 0, value)) |> 
+    ungroup() |> 
+    pivot_wider(names_from = name, values_from = value) |> 
+    select(-id),
+  # 3
+  df |> 
+    select(any_of(missing_cols)) |> 
+    mutate(id = 1:n()) |> 
+    pivot_longer(-id) |> 
+    group_by(name) |> 
+    mutate(value = ifelse(is.na(value), 1, 0)) |> 
+    ungroup() |> 
+    mutate(name = paste0(name, "_missing_dummy")) |> 
+    pivot_wider(names_from = name, values_from = value) |> 
+    select(-id)
 )
 ```
+
+```{r}
+df |> 
+  is.na() |> 
+  colSums() |> 
+  enframe() |> 
+  filter(value != 0)
+```
+
+There are no more columns with missing values left!
 
 ```{r}
 df |> 
