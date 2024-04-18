@@ -1,0 +1,138 @@
+---
+title: "Untitled"
+author: "Federico Deotto"
+date: "2024-04-17"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(ggsci)
+library(scales)
+# library(tidymodels)
+
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Default theme for charts
+theme_set(
+  theme_bw() +
+    theme(  
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(
+        face = "italic", size = 10, colour = "grey50"
+      )
+    )
+)
+
+```
+
+
+```{r}
+df <- read.csv('data_dummy_UTC.csv')
+```
+
+```{r}
+df <- df %>% 
+  mutate(date= as.POSIXct(date, tz = 'UTC'))
+```
+
+
+Splitting by time
+
+```{r}
+start_first <- as.POSIXct('2021-06-01 23:00:00 UTC', tz = 'UTC')
+end_second <- as.POSIXct('2022-12-31 23:00:00 UTC', tz = 'UTC')
+```
+
+
+```{r}
+#Plot prices
+df %>% 
+  filter(date < start_first) %>% 
+  ggplot(aes(x = date)) +
+  geom_line(aes(y = day_ahead_price_de, color = "day_ahead_price_de")) +
+  geom_line(aes(y = day_ahead_price_ch, color = "day_ahead_price_ch")) +
+  geom_line(aes(y = auction_price_ch_de, color = "auction_price_ch_de")) +
+  geom_line(aes(y = auction_price_de_ch, color = "auction_price_de_ch")) +
+  labs(title = "Prices day ahead 1st period",
+       x = "Hourly data",
+       y = "Price day ahead 1st",
+       color = "Day ahead prices") +
+  scale_color_manual(values = c("day_ahead_price_de" = "blue", "day_ahead_price_ch" = "red",  "auction_price_ch_de" = "green",  "auction_price_de_ch" = "yellow"))+
+  theme_minimal()
+```
+
+
+```{r}
+#Plot prices
+df %>% 
+  filter(date > start_first & date < end_second) %>% 
+  ggplot(aes(x = date)) +
+  geom_line(aes(y = day_ahead_price_de, color = "day_ahead_price_de")) +
+  geom_line(aes(y = day_ahead_price_ch, color = "day_ahead_price_ch")) +
+  geom_line(aes(y = auction_price_ch_de, color = "auction_price_ch_de")) +
+  geom_line(aes(y = auction_price_de_ch, color = "auction_price_de_ch")) +
+  labs(title = "Prices day ahead 2nd",
+       x = "Hourly data",
+       y = "Price day ahead 1st",
+       color = "Day ahead prices") +
+  scale_color_manual(values = c("day_ahead_price_de" = "blue", "day_ahead_price_ch" = "red",  "auction_price_ch_de" = "green",  "auction_price_de_ch" = "yellow"))+
+  theme_minimal()
+```
+
+
+
+```{r}
+#Plot prices
+df %>% 
+  filter(date > end_second) %>% 
+  ggplot(aes(x = date)) +
+  geom_line(aes(y = day_ahead_price_de, color = "day_ahead_price_de")) +
+  geom_line(aes(y = day_ahead_price_ch, color = "day_ahead_price_ch")) +
+  geom_line(aes(y = auction_price_ch_de, color = "auction_price_ch_de")) +
+  geom_line(aes(y = auction_price_de_ch, color = "auction_price_de_ch")) +
+  labs(title = "Prices day ahead 3d",
+       x = "Hourly data",
+       y = "Price day ahead 1st",
+       color = "Day ahead prices") +
+  scale_color_manual(values = c("day_ahead_price_de" = "blue", "day_ahead_price_ch" = "red",  "auction_price_ch_de" = "green",  "auction_price_de_ch" = "yellow"))+
+  theme_minimal()
+```
+
+
+
+```{r}
+
+X <- 1:10
+x_0 <- c(X, 0)
+x_mena <- c(X, mean(X))
+
+y = c(2*X, 22) + rnorm(11)
+
+dummy <- c(rep(0, 10), 1)
+
+X_0 <- cbind(x_0, dummy)
+summary(lm(y ~ X_0))
+
+X_mena <- cbind(x_mena, dummy)
+summary(lm(y ~ X_mena))
+
+
+
+fitted(lm(y ~ X_mena)) - fitted(lm(y ~ X_0))
+
+
+
+
+```
+
+
+
+
+
+
+
+
