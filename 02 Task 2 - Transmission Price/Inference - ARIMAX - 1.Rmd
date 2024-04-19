@@ -23,7 +23,7 @@ theme_set(
     theme(  
       plot.title = element_text(face = "bold", size = 14),
       plot.subtitle = element_text(
-        face = "italic", size = 10, colour = "grey50"
+        face = "italic", size = 10, colour = "green50"
       )
     )
 )
@@ -81,10 +81,11 @@ df_box <- df %>%
 #}
 
 boxcox_transform <- function(x, lambda) {
+  y = x - min(x) + 1
   if (lambda == 0) {
-    log(x - min(x) + 1)
+    log(y)
   } else {
-    (x^lambda - 1) / lambda
+    (y^lambda - 1) / lambda
   }
 }
 
@@ -105,8 +106,8 @@ df_box %>%
        x = "Hourly data",
        y = "Price day ahead",
        color = "Day ahead prices") +
-  scale_color_manual(values = c("day_ahead_price_de" = "blue", "day_ahead_price_ch" = "red"))+
-  theme_minimal()
+  scale_color_manual(values = c("day_ahead_price_de" = "green", "day_ahead_price_ch" = "red"))+
+  theme(plot.margin = margin(10, 10, 10, 10), legend.position = "bottom")
 ```
 
 
@@ -121,8 +122,8 @@ df_box %>%
        x = "Hourly data",
        y = "Price day ahead",
        color = "Day ahead prices") +
-  scale_color_manual(values = c("day_ahead_price_de" = "blue", "day_ahead_price_ch" = "red"))+
-  theme_minimal()
+  scale_color_manual(values = c("day_ahead_price_de" = "green", "day_ahead_price_ch" = "red"))+
+  theme(plot.margin = margin(10, 10, 10, 10), legend.position = "bottom")
 ```
 
 
@@ -137,8 +138,8 @@ df_box %>%
        x = "Hourly data",
        y = "Price day ahead",
        color = "Day ahead prices") +
-  scale_color_manual(values = c("day_ahead_price_de" = "blue", "day_ahead_price_ch" = "red"))+
-  theme_minimal()
+  scale_color_manual(values = c("day_ahead_price_de" = "green", "day_ahead_price_ch" = "red"))+
+  theme(plot.margin = margin(10, 10, 10, 10), legend.position = "bottom")
 ```
 
 
@@ -155,8 +156,8 @@ df_box %>%
        x = "Hourly data",
        y = "Price day ahead",
        color = "Day ahead prices") +
-  scale_color_manual(values = c("auction_price_de_ch" = "green", "auction_price_ch_de" = "blue" ))+
-  theme_minimal()
+  scale_color_manual(values = c("auction_price_de_ch" = "orange", "auction_price_ch_de" = "blue" ))+
+  theme(plot.margin = margin(10, 10, 10, 10), legend.position = "bottom")
 ```
 
 ```{r}
@@ -164,8 +165,9 @@ auction_price <- prices_name[3:4]
 df_box[, auction_price] <- df[, auction_price]
 
 df_box <- df_box %>%
-  mutate_at(vars(all_of(auction_price)), ~ boxcox_transform(., lambda = 0.03))
+  mutate_at(vars(all_of(auction_price)), ~ boxcox_transform(., lambda = -0.001))
 ```
+
 
 
 ```{r}
@@ -179,6 +181,82 @@ df_box %>%
        x = "Hourly data",
        y = "Price day ahead",
        color = "Day ahead prices") +
-  scale_color_manual(values = c("auction_price_de_ch" = "green", "auction_price_ch_de" = "blue" ))+
-  theme_minimal()
+  scale_color_manual(values = c("auction_price_de_ch" = "orange", "auction_price_ch_de" = "blue" ))+
+  theme(plot.margin = margin(10, 10, 10, 10), legend.position = "bottom")
 ```
+
+
+# PRICE ELECTRICITY GERMANY
+
+In this section we focus in the analysis of the german elcetricity price.
+
+```{r}
+# Make the chart
+df_box %>% 
+  filter(date < first_cut) %>% 
+  ggplot(aes(x = date)) +
+  geom_line(aes(y = day_ahead_price_de, color = "day_ahead_price_de")) +
+  scale_x_datetime(date_labels = "%Y-%m", date_breaks="4 months") +
+  labs(title = "Prices First Period",
+       x = "Hourly data",
+       y = "Price day ahead",
+       color = "Day ahead prices") +
+  scale_color_manual(values = c("day_ahead_price_de" = "green"))+
+  theme(plot.margin = margin(10, 10, 10, 10), legend.position = "bottom")
+```
+
+
+```{r}
+# Make the chart
+df_box %>% 
+  filter(date < second_cut & date >= first_cut) %>% 
+  ggplot(aes(x = date)) +
+  geom_line(aes(y = day_ahead_price_de, color = "day_ahead_price_de")) +
+  scale_x_datetime(date_labels = "%Y-%m", date_breaks="4 months") +
+  labs(title = "Prices Second Period",
+       x = "Hourly data",
+       y = "Price day ahead",
+       color = "Day ahead prices") +
+  scale_color_manual(values = c("day_ahead_price_de" = "green"))+
+  theme(plot.margin = margin(10, 10, 10, 10), legend.position = "bottom")
+```
+
+
+```{r}
+# Make the chart
+df_box %>% 
+  filter(date > second_cut) %>% 
+  ggplot(aes(x = date)) +
+  geom_line(aes(y = day_ahead_price_de, color = "day_ahead_price_de")) +
+  scale_x_datetime(date_labels = "%Y-%m", date_breaks="4 months") +
+  labs(title = "Prices Third Period",
+       x = "Hourly data",
+       y = "Price day ahead",
+       color = "Day ahead prices") +
+  scale_color_manual(values = c("day_ahead_price_de" = "green"))+
+  theme(plot.margin = margin(10, 10, 10, 10), legend.position = "bottom")
+```
+
+
+
+```{r}
+date_outlier <- df_box %>%
+  filter(day_ahead_price_de == min(day_ahead_price_de)) %>% 
+  pull(date)
+```
+
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
+
