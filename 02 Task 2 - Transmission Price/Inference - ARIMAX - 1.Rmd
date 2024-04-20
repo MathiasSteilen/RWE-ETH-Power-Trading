@@ -247,7 +247,54 @@ date_outlier <- df_box %>%
 
 
 ```{r}
+library(fastTS)
+library(xts)
+```
 
+```{r}
+substrings_to_remove <- c('_ch_de', '_de_ch', '_at', '_fr', '_ch', '_de',
+                          '_it', '_missing_dummy', '_FR_CH', '_lu')
+
+variable_names <- df %>% colnames() %>% 
+  map(~str_remove_all(., paste(substrings_to_remove, collapse = "|")))  %>%
+  unlist() %>% 
+  unique()
+
+variable_names
+
+variable_forecast <- variable_names[str_detect(variable_names, 'forecast')] %>%
+  str_remove('_forecast')
+variable_forecast
+```
+
+Is there a way to select variables before training? First, let's consider how the day-ahead price is determined. The price for tomorrow (t+24:48) is established using all available information as of today morning (t). 
+So, if not justified by further reasoning, it doesn't make sense to use the actual quantity of electricity from water reservoirs at (t+24) to model the electricity price at (t+24) (prediction context). While there are cases where the electricity production for the next day can be predicted quite accurately, it's not necessarily true for all variables we're considering. Therefore, the preferred approach is to use forecasts, which may not perfectly align with those used by traders during auctions but are the closest approximation.
+
+In instances where forecasts are unavailable, we'll resort to using actual production data at (t+24), which can serve as a proxy for a forecast (assuming our company possesses highly accurate internal predictions). However, this approach is subject to debate (prediction context).
+
+The previous arguments were all based on the assumption of a model that needs to be cautious about potential data leakage, as we aim for a model that precisely replicates how prices are formed and can be deployed within a company. Additionally, there's a more descriptive approach that involves utilizing variables observed at time t+24. The rationale for doing this is to discover possible insights.
+
+We'll adapt three models:
+
+The first model incorporates additional information and is lagged by 24 hours, effectively simulating an internal forecast. In this model, we must avoid using prices from other countries at time t+24 for the JAO prediction, as this would constitute a significant information leak. However, for the Switzerland price, we can use the JAO results; analogously for Germany, Austria, France, and Italy, we can use the prices of Switzerland and JAO. The second model includes only the forecasted variables (solar, wind onshore, capacity). The third takes into account all variables.
+
+
+```{r}
+# Make the chart
+a_cut <- as.POSIXct("2021-08-30 23:00:00", tz = "UTC")
+b_cut <- as.POSIXct("2021-10-30 23:00:00", tz = "UTC")
+df %>% 
+  filter(date < b_cut & date > a_cut ) %>% 
+  ggplot(aes(x = date)) +
+    geom_line(aes(y = ATC_de_ch, color = "ATC_de_ch"), lwd = 1) +
+  geom_line(aes(y = ATC_ch_de, color = "ATC_ch_de"), lwd = 1) +
+  scale_x_datetime(date_breaks = "11 hour", date_labels = "%H") +
+  labs(title = "ATC",
+       x = "Hourly data",
+       y = "ATC",
+       color = "ATC") +
+  scale_color_manual(values = c("ATC_de_ch" = "cyan", "ATC_ch_de" = "grey"))+
+  theme(plot.margin = margin(10, 10, 10, 10), legend.position = "bottom")
 ```
 
 
@@ -255,8 +302,64 @@ date_outlier <- df_box %>%
 
 
 
+#SHINY TWO TIMESERIES
+
+```{r}
+library(shiny)
+
+numeric_columns <- colnames(select_if(df, is.numeric))
+
+# Define UI for the application
+ui <- fluidPage(
+  
+  # Application title
+  titlePanel("Interactive Time Series Plot"),
+  
+  # Sidebar layout
+  sidebarLayout(
+    sidebarPanel(
+      # Select input for choosing time series
+      selectInput("time_series1", "Select Time Series:",
+                  choices = numeric_columns),
+      selectInput("time_series2", "Select Time Series:",
+                  choices = numeric_columns),
+      dateRangeInput("date_range", "Select Date Range:",
+                     start = min(df$date), end = max(df$date),
+                     min = min(df$date), max = max(df$date)),
+      tags$style(".sidebar {width: 100px; height: 600px; overflow-y: auto;}")
+
+    ),
+    
+    # Main panel with plot
+    mainPanel(
+      plotOutput("time_series_plot", height = "700px", width = "100%")
+    )
+  )
+)
+
+# Define server logic
+server <- function(input, output) {
+  
+
+  # Reactive expression for filtered data based on selected time series and time window
+  filtered_data <- reactive({
+    df %>%
+      filter(date >= input$date_range[1] & date <= input$date_range[2]) %>% 
+      select(date, !!input$time_series1, !!input$time_series2)
+  })
+  
+  output$time_series_plot <- renderPlot({
+    ggplot(filtered_data(), aes(x = date)) +
+      geom_line(aes(y = !!sym(input$time_series1),color = "time_series1")) +
+      geom_line(aes(y = !!sym(input$time_series2),color = "time_series2")) +
+      labs(title = "Time Series Plot", x = "Date Time", y = "Value")+
+      scale_color_manual(values = c("time_series1" = "cyan","time_series2" = "grey"))+
+      theme(plot.margin = margin(10, 10, 10, 10), legend.position = "bottom")})
+  
+}
 
 
-
-
+# Run the application
+shinyApp(ui = ui, server = server)
+```
 
