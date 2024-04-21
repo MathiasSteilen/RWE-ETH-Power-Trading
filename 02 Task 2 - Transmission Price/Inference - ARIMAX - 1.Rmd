@@ -66,17 +66,17 @@ Added by M: create calendar features
 - Careful: "date" is in UTC, hour in day in our time zone will change, need to include interaction with the "dst" variable
 
 ```{r}
-df = df |> 
-  mutate(
-    cal_year = year(date),
-    cal_month = month(date),
-    cal_day_in_month = day(date),
-    cal_day_in_week = wday(date, label = F),
-    cal_day_in_year = yday(date),
-    cal_week_in_year = week(date),
-    cal_quarter = quarter(date),
-    cal_hour_in_day = hour(date),
-)
+#df = df |> 
+#  mutate(
+#    cal_year = year(date),
+#    cal_month = month(date),
+#    cal_day_in_month = day(date),
+#    cal_day_in_week = wday(date, label = F),
+#    cal_day_in_year = yday(date),
+#    cal_week_in_year = week(date),
+#    cal_quarter = quarter(date),
+#    cal_hour_in_day = hour(date),
+#)
 ```
 
 
@@ -391,24 +391,54 @@ df_1 <- df %>%
 
 #prices other countries
 x1 <- df %>% 
-  select(c(day_ahead_price_at, day_ahead_price_fr)) %>% 
+  select(c(day_ahead_price_at, day_ahead_price_fr, day_ahead_price_it)) %>% 
   slice((lag+1):n)
 
 df_1 <- cbind(df_1, x1)
 
-name_temp <- colnames(df_1)
-x <- df %>% 
-  select(-name_temp) %>% 
-  slice(1:(n-lag))
-
-df_2 <- cbind(df_1, x)
-
-x <- df %>% 
-  select(-name_temp) %>% 
-  slice((lag+1):n)
-
-df_3 <- cbind(df_1, x)
+#name_temp <- colnames(df_1)
+#x <- df %>% 
+#  select(-name_temp) %>% 
+#  slice(1:(n-lag))
+#
+#df_2 <- cbind(df_1, x)
+#
+#x <- df %>% 
+#  select(-name_temp) %>% 
+#  slice((lag+1):n)
+#
+#df_3 <- cbind(df_1, x)
 ```
+
+```{r}
+x <- df %>% select(date, dst)
+
+x = x |> 
+  mutate(
+    cal_year = year(date),
+    cal_month = month(date),
+    cal_day_in_month = day(date),
+    cal_day_in_week = wday(date, label = F),
+    cal_week_in_year = week(date),
+    cal_quarter = quarter(date),
+    cal_hour_in_day = hour(date),
+)
+
+x <- x %>%
+  select(-date)
+
+x <- mutate_all(x, as.factor)
+
+
+formula_str <- paste(" ~ -1 + dst + ", paste(names(x)[-which(names(x) == "dst")], collapse = " + "), " + ",
+                     paste(names(x)[-which(names(x) == "dst")], ":", "dst", sep = "", collapse = " + "), sep = "")
+formula_str <- formula(formula_str)
+
+x <- model.matrix(formula_str, data = x)
+```
+
+
+
 
 ```{r}
 library(fastTS)
@@ -434,17 +464,6 @@ fit1 <- fastTS(y, x, ptrain = 0.8)
 
 summary(fit1)
 #summary(fit2)
-
-
-#res <- fit_LH$fits %>% unlist()
-#
-#rr <- fit_LH$ncvreg_args$y
-#plot(fit_LH)
-#plot(rr)
-#plot(y)
-#
-#ff <- predict(fit_LH)
-
 ```
 
 
