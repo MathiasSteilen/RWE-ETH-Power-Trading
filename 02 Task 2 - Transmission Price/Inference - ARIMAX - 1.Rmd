@@ -1,4 +1,4 @@
---- 
+---
 title: "ARIMAX"
 author: "Federico Deotto"
 date: "2024-03-12"
@@ -33,18 +33,20 @@ theme_set(
 
 ## The Goal
 
-Select variables based on availability (NA) and variance, ensuring conversion to the appropriate type (e.g., converting integers into numeric data).
+Adapt an ARIMAX model.
+
 
 ```{r}
 # Read data - both direction JAO
 df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed.csv")
-
-df$date %>% str()
 ```
 
 Convert dummies for missing values and variable dst into factor, and ensure that all numeric colums are encoded as such.
 
 ```{r}
+df <- df %>% 
+  mutate(date = with_tz(date, tzone = "UTC"))
+
 df <- df %>%
   mutate_at(vars(-date), as.numeric)
 
@@ -67,7 +69,7 @@ first_cut <- as.POSIXct("2021-06-30 23:00:00", tz = "UTC")
 second_cut <- as.POSIXct("2022-12-31 23:00:00", tz = "UTC")
 ```
 
-Create a data.frame that contains exclusively the log_transfo of the four prices and their timestamp (date).
+Create a data.frame that contains exclusively the box_transformation of the four prices and their timestamp (date).
 ```{r}
 prices_name <- c('day_ahead_price_de', 
                  'day_ahead_price_ch',
@@ -97,7 +99,6 @@ df_box <- df_box %>%
 
 
 ```{r}
-# Make the chart
 df_box %>% 
   filter(date < first_cut) %>% 
   ggplot(aes(x = date)) +
@@ -113,7 +114,6 @@ df_box %>%
 
 
 ```{r}
-# Make the chart
 df_box %>% 
   filter(date < second_cut & date >= first_cut) %>% 
   ggplot(aes(x = date)) +
@@ -129,7 +129,6 @@ df_box %>%
 
 
 ```{r}
-# Make the chart
 df_box %>% 
   filter(date > second_cut) %>% 
   ggplot(aes(x = date)) +
@@ -144,10 +143,9 @@ df_box %>%
 ```
 
 
-We can see that the log_transfo is not good with the auction_prices. Try another boxCox transfo in order to take care of skewness. The interpretability of the final modell will be compromise, since the log transfo guarantees an interpretation of the coef in terms of percentage change.
+We can see that the log_transformation is not good with the auction_prices. Try another boxCox transformation in order to take care of skewness. The interpretability of the final modell will be compromise, since the log transformation guarantees an interpretation of the coeficient in terms of percentage change.
 
 ```{r}
-# Make the chart
 df_box %>% 
   filter(date < first_cut) %>% 
   ggplot(aes(x = date)) +
@@ -172,7 +170,6 @@ df_box <- df_box %>%
 
 
 ```{r}
-# Make the chart
 df_box %>% 
   filter(date < first_cut) %>% 
   ggplot(aes(x = date)) +
@@ -192,7 +189,6 @@ df_box %>%
 In this section we focus in the analysis of the german elcetricity price.
 
 ```{r}
-# Make the chart
 df_box %>% 
   filter(date < first_cut) %>% 
   ggplot(aes(x = date)) +
@@ -208,7 +204,6 @@ df_box %>%
 
 
 ```{r}
-# Make the chart
 df_box %>% 
   filter(date < second_cut & date >= first_cut) %>% 
   ggplot(aes(x = date)) +
@@ -224,7 +219,6 @@ df_box %>%
 
 
 ```{r}
-# Make the chart
 df_box %>% 
   filter(date > second_cut) %>% 
   ggplot(aes(x = date)) +
@@ -237,7 +231,6 @@ df_box %>%
   scale_color_manual(values = c("day_ahead_price_de" = "green"))+
   theme(plot.margin = margin(10, 10, 10, 10), legend.position = "bottom")
 ```
-
 
 
 ```{r}
@@ -277,39 +270,13 @@ The previous arguments were all based on the assumption of a model that needs to
 
 We'll adapt three models:
 
-The first model incorporates additional information and is lagged by 24 hours, effectively simulating an internal forecast. In this model, we must avoid using prices from other countries at time t+24 for the JAO prediction, as this would constitute a significant information leak. However, for the Switzerland price, we can use the JAO results; analogously for Germany, Austria, France, and Italy, we can use the prices of Switzerland and JAO. The second model includes only the forecasted variables (solar, wind onshore, capacity). The third takes into account all variables.
-
-
-```{r}
-# Make the chart
-a_cut <- as.POSIXct("2021-08-30 23:00:00", tz = "UTC")
-b_cut <- as.POSIXct("2021-10-30 23:00:00", tz = "UTC")
-df %>% 
-  filter(date < b_cut & date > a_cut ) %>% 
-  ggplot(aes(x = date)) +
-    geom_line(aes(y = ATC_de_ch, color = "ATC_de_ch"), lwd = 1) +
-  geom_line(aes(y = ATC_ch_de, color = "ATC_ch_de"), lwd = 1) +
-  scale_x_datetime(date_breaks = "11 hour", date_labels = "%H") +
-  labs(title = "ATC",
-       x = "Hourly data",
-       y = "ATC",
-       color = "ATC") +
-  scale_color_manual(values = c("ATC_de_ch" = "cyan", "ATC_ch_de" = "grey"))+
-  theme(plot.margin = margin(10, 10, 10, 10), legend.position = "bottom")
-```
+The first model incorporates additional information and is lagged by 24 hours, effectively simulating an internal forecast. In this model, we must avoid using prices from other countries at time t+24 for the JAO prediction, as this would constitute a significant information leak. However, for the Switzerland price, we can use the JAO results; analogously for Germany, Austria, France, and Italy, we can use the prices of Switzerland and JAO. The second model includes only the forecasted variables (solar, wind onshore, capacity).In these two models is also necessary to set the lag as covariates greater than 23.  The third takes into account all variables.
 
 
 
-
-
-
-#SHINY TWO TIMESERIES
+#SHINY TWO TIME SERIES AND SCALED
 
 ```{r}
-library(shiny)
-
-numeric_columns <- colnames(select_if(df, is.numeric))
-
 # Define UI for the application
 ui <- fluidPage(
   
@@ -320,15 +287,17 @@ ui <- fluidPage(
   sidebarLayout(
     sidebarPanel(
       # Select input for choosing time series
-      selectInput("time_series1", "Select Time Series:",
-                  choices = numeric_columns),
-      selectInput("time_series2", "Select Time Series:",
-                  choices = numeric_columns),
+      selectInput("time_series1", "Select Time Series 1:",
+                  choices = colnames(select_if(df, is.numeric))),
+      selectInput("time_series2", "Select Time Series 2:",
+                  choices = colnames(select_if(df, is.numeric))),
       dateRangeInput("date_range", "Select Date Range:",
                      start = min(df$date), end = max(df$date),
                      min = min(df$date), max = max(df$date)),
+      radioButtons("plot_type", "Plot Type:",
+                   choices = c("Original", "Scaled and Centered"),
+                   selected = "Original"),
       tags$style(".sidebar {width: 100px; height: 600px; overflow-y: auto;}")
-
     ),
     
     # Main panel with plot
@@ -341,7 +310,6 @@ ui <- fluidPage(
 # Define server logic
 server <- function(input, output) {
   
-
   # Reactive expression for filtered data based on selected time series and time window
   filtered_data <- reactive({
     df %>%
@@ -349,18 +317,169 @@ server <- function(input, output) {
       select(date, !!input$time_series1, !!input$time_series2)
   })
   
+  # Reactive expression for scaled and centered data
+  scaled_centered_data <- reactive({
+    data <- filtered_data()
+    if (input$plot_type == "Scaled and Centered") {
+      for (col in c(input$time_series1, input$time_series2)) {
+        data[[col]] <- scale(data[[col]], center = TRUE, scale = TRUE)
+      }
+    }
+    return(data)
+  })
+  
   output$time_series_plot <- renderPlot({
-    ggplot(filtered_data(), aes(x = date)) +
-      geom_line(aes(y = !!sym(input$time_series1),color = "time_series1")) +
-      geom_line(aes(y = !!sym(input$time_series2),color = "time_series2")) +
-      labs(title = "Time Series Plot", x = "Date Time", y = "Value")+
-      scale_color_manual(values = c("time_series1" = "cyan","time_series2" = "grey"))+
-      theme(plot.margin = margin(10, 10, 10, 10), legend.position = "bottom")})
+    if (input$plot_type == "Original") {
+      ggplot(filtered_data(), aes(x = date)) +
+        geom_line(aes(y = !!sym(input$time_series1), color = "time_series1")) +
+        geom_line(aes(y = !!sym(input$time_series2), color = "time_series2")) +
+        labs(title = "Time Series Plot", x = "Date Time", y = "Value") +
+        scale_color_manual(values = c("time_series1" = "cyan", "time_series2" = "grey")) +
+        theme(plot.margin = margin(10, 10, 10, 10), legend.position = "bottom")
+    } else {
+      ggplot(scaled_centered_data(), aes(x = date)) +
+        geom_line(aes(y = !!sym(input$time_series1), color = "time_series1")) +
+        geom_line(aes(y = !!sym(input$time_series2), color = "time_series2")) +
+        labs(title = "Scaled and Centered Time Series Plot", x = "Date Time", y = "Scaled and Centered Value") +
+        scale_color_manual(values = c("time_series1" = "cyan", "time_series2" = "grey")) +
+        theme(plot.margin = margin(10, 10, 10, 10), legend.position = "bottom")
+    }
+  })
   
 }
 
-
 # Run the application
 shinyApp(ui = ui, server = server)
+
+
 ```
+
+
+
+# SPARSE LASSO
+
+
+
+In the following chunk we create the matrfix of the covariates based on the criteria explained previously. The matrix for the model with all sync variables is not hear since Idk how to construct it.
+```{r}
+n <- nrow(df)
+lag = 24
+variable_forecast <- grep("forecast", names(df), value = TRUE)
+df_1 <- df %>% 
+  select(c(date, day_ahead_price_ch, day_ahead_price_de,
+           auction_price_ch_de, auction_price_de_ch, variable_forecast)) %>% 
+  slice(1:(n-lag))
+
+#prices other countries
+x1 <- df %>% 
+  select(c(day_ahead_price_at, day_ahead_price_fr)) %>% 
+  slice((lag+1):n)
+
+df_1 <- cbind(df_1, x1)
+
+name_temp <- colnames(df_1)
+x <- df %>% 
+  select(-name_temp) %>% 
+  slice(1:(n-lag))
+
+df_2 <- cbind(df_1, x)
+
+x <- df %>% 
+  select(-name_temp) %>% 
+  slice((lag+1):n)
+
+df_3 <- cbind(df_1, x)
+```
+
+```{r}
+library(fastTS)
+library(xts)
+
+df3 <- df_3 %>% 
+  filter(date > second_cut)
+  
+
+y <- xts(df3$day_ahead_price_de,
+       order.by = df3$date)
+
+x <- df3 %>% 
+  select(-c(date, day_ahead_price_de))
+
+x <- x %>%
+  mutate(across(everything(), as.numeric)) %>% 
+  as.matrix()
+
+fit1 <- fastTS(y, x, ptrain = 0.8)
+#x1 <- scale(x) %>% as.data.frame() %>%   select_if(~ !any(is.na(.)))
+#fit2 <- fastTS(y, scale(x1))
+
+summary(fit1)
+#summary(fit2)
+
+
+#res <- fit_LH$fits %>% unlist()
+#
+#rr <- fit_LH$ncvreg_args$y
+#plot(fit_LH)
+#plot(rr)
+#plot(y)
+#
+#ff <- predict(fit_LH)
+
+```
+
+
+Don't really got it how the scaling works. From CRAN seems it scale but if I first scale obtain different results.
+
+```{r}
+#fit1$oos_results
+#fit2$oos_results
+#
+#
+#coef(fit1)[coef(fit1) != 0] %>% sort()
+#cat("\n")
+#cat("\n")
+#cat("\n")
+#coef(fit2)[coef(fit2) != 0] %>% sort()
+#
+#
+#
+#
+#ll <- coef(fit2)[coef(fit2) != 0] %>% sort()-coef(fit1)[coef(fit1) != 0] %>% #sort()
+#ll %*% rep(1, 240) 
+```
+
+```{r}
+coef(fit1)[coef(fit1) != 0,]   %>% sort(decreasing = T) %>% names()
+
+#lol <- as.matrix(coef(fit1) %>% sort(decreasing = T))
+#
+#lol <- coef(fit2)[coef(fit2) != 0,] %>% sort(decreasing = F) %>% names()
+#lol[!grepl("lag", lol)]
+```
+
+```{r}
+fit1$fits
+lol <- fit1$fits 
+lol <- lol[[1]]
+
+lol$linear.predictors
+
+f1 <- fit1$fits[[1]]
+f2 <- fit1$fits[[2]]
+
+
+f1$lambda %>% length()
+f1$gamma
+pos <- which.min(f1$loss)
+f1$beta[ , pos]
+
+
+library(ncvreg)
+```
+
+
+
+
+
 
