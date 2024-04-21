@@ -44,8 +44,8 @@ data_ch_de <- data_ch_de %>%
 #Initialize df that contain ALL variables
 df <- data_ch_de %>% 
   mutate(auction_price_de_ch = data_de_ch$auction_price, 
-         allocatedCapacity_de_ch= data_de_ch$allocatedCapacity, 
-         ATC_de_ch= data_de_ch$ATC) %>% 
+         allocatedCapacity_de_ch = data_de_ch$allocatedCapacity, 
+         ATC_de_ch = data_de_ch$ATC) %>% 
   arrange(date)
 
 rm(data_ch_de, data_de_ch)
@@ -195,8 +195,6 @@ df <- df %>%
 ```
 
 ### Reorder and rename some variables to make it more understandable
-
-TBD
 
 ```{r}
 reorder_cols = c("date", "auction_price_ch_de", "auction_price_de_ch",

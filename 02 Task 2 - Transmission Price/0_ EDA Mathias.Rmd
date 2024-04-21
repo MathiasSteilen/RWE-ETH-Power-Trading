@@ -26,41 +26,18 @@ theme_set(
 
 ```
 
-<!-- ## The Goal -->
+## The Goal
 
-<!-- The goal of this EDA is to better understand what drives the JAO transmission capacity prices from DE to CH. -->
-
-<!-- Output: Have a subset of variables that will be selected for modelling. -->
+The goal of this EDA is to better understand our target variables (spot prices and auction prices).
 
 ```{r}
 # Read data
-df = read_csv("../00_Data Retrieval and Cleaning/0_df_final_ch-de_UTC.csv") |> 
-  arrange(date) |> 
-  select(-c(ATC))
+df = read_csv("../00 Data Retrieval and Cleaning/0_df_final_not_imputed.csv") |> 
+  arrange(date)
 
 dim(df)
-```
 
-
-Variables to remove:
-
-```{r}
-df = df |> 
-  # zero variance
-  select(
-    -c(
-      biomass_actual_consumption_at,
-      fossil_gas_actual_consumption_at, fossil_hard_coal_actual_consumption_at,
-      fossil_oil_actual_aggregated_at, fossil_oil_actual_consumption_at,
-      geothermal_actual_aggregated_at, geothermal_actual_consumption_at,
-      `hydro_run-of-river_and_poundage_actual_consumption_at`,
-      hydro_water_reservoir_actual_consumption_at,
-      other_actual_aggregated_at, other_actual_consumption_at,
-      other_renewable_actual_aggregated_at,
-      other_renewable_actual_consumption_at, solar_actual_consumption_at,
-      waste_actual_aggregated_at,
-      waste_actual_consumption_at, wind_onshore_actual_consumption_at)
-  ) 
+df |> glimpse()
 ```
 
 ### Missing value
@@ -87,57 +64,6 @@ tibble(
   labs(title = "Number of columns with more than x% missing values",
        y = "# of cols", x = "Minimum Missing Percentage") +
   scale_x_continuous(breaks = seq(0, 1, 0.1), labels = percent_format())
-```
-
-From this chart, I'd say we can set the limit at 10% and drop all that have more than that.
-
-```{r}
-df = df |> 
-  select(
-    colMeans(is.na(df)) |> 
-      enframe() |>
-      filter(value < 0.1) |> 
-      pull(name) 
-  )
-```
-
-Visualise the missingness in those columns that still have missing values:
-
-```{r}
-df |> 
-  select(
-    colMeans(is.na(df)) |> 
-      enframe() |>
-      filter(value > 0) |> 
-      pull(name)
-  ) |> 
-  naniar::vis_miss(warn_large_data = F)
-```
-
-Impute the missing values with Random Forest:
-
-```{r}
-df_imputed = missRanger::missRanger(
-  df,
-  num.trees = 50,
-  # sample.fraction = 0.1,
-  verbose = 1
-)
-```
-
-```{r}
-df = df_imputed
-```
-
-```{r}
-df |> 
-  is.na() |>
-  colMeans()
-```
-
-```{r}
-df |> 
-  write_csv("../00_Data Retrieval and Cleaning/0_df_final_ch-de_UTC_removedconstant_removedmissing_imputed.csv")
 ```
 
 ### The Target Variable
