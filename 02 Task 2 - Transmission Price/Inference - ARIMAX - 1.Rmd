@@ -11,6 +11,7 @@ editor_options:
 knitr::opts_chunk$set(echo = TRUE)
 
 library(tidyverse)
+library(lubridate)
 library(ggsci)
 library(scales)
 
@@ -58,6 +59,24 @@ factor_colums <- c('dst', dummies_columns)
 
 df <- df %>%
   mutate_at(vars(factor_colums), factor)
+```
+
+Added by M: create calendar features
+
+- Careful: "date" is in UTC, hour in day in our time zone will change, need to include interaction with the "dst" variable
+
+```{r}
+df = df |> 
+  mutate(
+    cal_year = year(date),
+    cal_month = month(date),
+    cal_day_in_month = day(date),
+    cal_day_in_week = wday(date, label = F),
+    cal_day_in_year = yday(date),
+    cal_week_in_year = week(date),
+    cal_quarter = quarter(date),
+    cal_hour_in_day = hour(date),
+)
 ```
 
 
