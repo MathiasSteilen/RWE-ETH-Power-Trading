@@ -229,6 +229,18 @@ There are no missing values in the target variable.
 
 The imputation method used for this project after discussion with the supervisor is to fill missing values with zero and include a dummy variable indicating for each column with missing data which indicates whether data in this corresponding row is missing.
 
+
+```{r}
+df2 <- df #with missing INITIALIZE
+
+df3 <- as.matrix(df2)
+df4 <- df2 %>% 
+  select(missing_cols) %>% 
+  as.matrix()
+```
+
+
+
 ```{r}
 # Identify columns with missing values
 missing_cols = df |> 
@@ -288,3 +300,121 @@ df |>
 ```
 
 Save the dataset in a file so we can use it in the future with the same imputation.
+
+# Check imputation 
+
+
+```{r}
+cond <- is.na(df3)
+df_no_dummy <- df %>% 
+  select(colnames(df2))
+
+df_no_dummy <- data.matrix(df_no_dummy)
+df_no_dummy[cond] %>% sum() #ALL the NA where replaced by 0 in df
+
+missing_counts <- df2 %>%
+  select(missing_cols) %>% 
+  summarise_all(~ sum(is.na(.)))
+
+
+
+cond <- is.na(df4) #matrix of dummy
+df_dummy <- df %>% 
+  select(!colnames(df2))
+
+df_dummy[!cond] %>% sum() #All the non-NA where replaced by 0
+tib <- df_dummy %>% colSums() %>% tibble()
+tib2 <- t(missing_counts) %>% tibble()
+tib - tib2 #Also the umber of missing vaues coincide
+```
+
+
+# Observation from dummies column
+
+After checking that the imputation was correct notice taht same column of the the missing values coincide  with each other.We decide to identify this column and use only one dummy.
+
+
+```{r}
+#If the columns are identical they must have same mean
+mn <- colMeans(df_dummy)
+mn <- mn[duplicated(mn)] #choose duplicated
+
+dup <- unique(mn[duplicated(mn)])
+cond <- mn %in% dup 
+mn <- mn[cond]
+tib <- tibble(names = names(mn), values = mn)
+
+# Group by value and extract names
+same_value_names <- tib %>%
+  group_by(values) %>%
+  summarise(names = list(names)) %>%
+  filter(length(names) > 1) %>%
+  pull(names)
+
+#Count the number of 1 per col
+df_dummy %>% 
+  select(same_value_names[[1]]) %>% 
+  colSums()
+
+#Count the values per row. If all 1 then they sum up to 31
+row <- df_dummy %>% 
+  select(same_value_names[[1]]) %>% 
+  rowSums()
+
+same_value_names[[1]] %>% length
+
+(row == 32) %>% sum #The number of row == 32 should be equal to the number of 1 per columns -- > same df
+
+#REPEAT
+df_dummy %>% 
+  select(same_value_names[[2]]) %>% 
+  colSums()
+
+row <- df_dummy %>% 
+  select(same_value_names[[2]]) %>% 
+  rowSums()
+
+same_value_names[[2]] %>% length
+
+(row == 8) %>% sum
+
+
+df_dummy %>% 
+  select(same_value_names[[3]]) %>% 
+  colSums()
+
+row <- df_dummy %>% 
+  select(same_value_names[[3]]) %>% 
+  rowSums()
+
+same_value_names[[3]] %>% length
+
+(row == 2) %>% sum   ###FAILED
+
+
+df_dummy %>% 
+  select(same_value_names[[4]]) %>% 
+  colSums()
+
+row <- df_dummy %>% 
+  select(same_value_names[[4]]) %>% 
+  rowSums()
+
+same_value_names[[4]] %>% length
+
+(row == 2) %>% sum
+```
+
+Having check that the imputation is correct we can say that: except for the third group, all the columns inside the same group share the same dummy 'distribution'. So we have to think of a depence btw this variable and how to procede with the modelling. It's true that we introduce multicollinearity but the single dummy should represent different effect, so how to procede? Should we reduce the dimension of dummy matrix or keep as it is now?
+
+The first group considers:
+capacity and alllcation of capacity it make sense that prset the same missing but is not clear how they are dependent with the otehrs.
+
+The second group is dominanted by _fr variable so this can be teh source of dependence. 
+
+The fourth groupd is the same variable hydro_reservoir_storage for _at and _ch
+
+
+
+
+
