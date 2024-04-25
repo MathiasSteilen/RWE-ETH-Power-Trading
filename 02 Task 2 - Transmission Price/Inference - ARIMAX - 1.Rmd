@@ -424,6 +424,8 @@ formula_str <- paste(" ~ -1 + dst + ", paste(names(x)[-which(names(x) == "dst")]
 formula_str <- formula(formula_str)
 
 x <- model.matrix(formula_str, data = x)
+
+tibble(x)
 ```
 
 
