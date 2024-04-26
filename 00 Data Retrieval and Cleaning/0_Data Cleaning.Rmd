@@ -164,8 +164,8 @@ df = df |>
 Let's visualise the missingness in the rest of the variables:
 
 ```{r}
-df |> 
-  naniar::vis_miss(warn_large_data = F)
+#df |> 
+#  naniar::vis_miss(warn_large_data = F)
 ```
 
 ### Forecast variables
@@ -331,7 +331,7 @@ tib - tib2 #Also the umber of missing vaues coincide
 
 # Observation from dummies column
 
-After checking that the imputation was correct notice taht same column of the the missing values coincide  with each other.We decide to identify this column and use only one dummy.
+After checking that the imputation was correct notice that same column of the the missing values coincide  with each other.We decide to identify this column and use only one dummy.
 
 
 ```{r}
