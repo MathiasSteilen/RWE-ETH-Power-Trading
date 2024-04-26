@@ -102,10 +102,10 @@ folds
 ### Data Preprocessing Recipe
 
 ```{r}
-xg_rec <- recipe(auction_price_de_ch ~ ., data = dt_train) %>%
-  update_role(date, new_role = "ID") %>%
+xg_rec <- recipe(auction_price_de_ch ~ ., data = dt_train) |>
+  update_role(date, new_role = "ID") |>
   step_zv(all_predictors()) |> 
-  step_center(all_predictors()) %>% 
+  step_center(all_predictors()) |> 
   step_scale(all_predictors())
 ```
 
@@ -172,12 +172,12 @@ if (do_tune){
                         min_n = tune(),
                         tree_depth = tune(),
                         learn_rate = tune(),
-                        loss_reduction = tune()) %>%
-    set_engine("xgboost") %>%
+                        loss_reduction = tune()) |>
+    set_engine("xgboost") |>
     set_mode("regression")
   
-  xg_wflow <- workflow() %>% 
-    add_recipe(xg_rec) %>% 
+  xg_wflow <- workflow() |> 
+    add_recipe(xg_rec) |> 
     add_model(xg_spec)
 }
 ```
@@ -248,47 +248,41 @@ xg_spec <- boost_tree(
   tree_depth = best_combination$tree_depth,
   learn_rate = best_combination$learn_rate,
   loss_reduction = best_combination$loss_reduction
-) %>%
-  set_engine("xgboost") %>%
+) |>
+  set_engine("xgboost") |>
   set_mode("regression")
 
-xg_wflow <- workflow() %>% 
-  add_recipe(xg_rec) %>% 
+xg_wflow <- workflow() |> 
+  add_recipe(xg_rec) |> 
   add_model(xg_spec)
 ```
 
 Fitting the model:
 
 ```{r}
-xg_final_fit <- xg_wflow %>% 
+xg_final_fit <- xg_wflow |> 
   fit(dt_train)
 ```
 
 ### Model Evaluation
 
 ```{r}
-# Look at metrics
-xg_final_fit %>% collect_metrics()
-
 # Get feature importance
-vi_df <- xg_final_fit %>%
-  pluck(".workflow", 1) %>%
-  extract_fit_parsnip() %>%
-  vi() %>%
-  as.data.frame() %>%
-  mutate(pred_year = start_year + train_window) %>%
-  bind_rows(vi_df)
-
-# Pull out trained workflow
-xg_trained_wflow <- extract_workflow(xg_final_fit)
+xg_final_fit |>
+  extract_fit_parsnip() |>
+  vip::vi() |> 
+  arrange(desc(Importance)) |> 
+  head(30) |> 
+  ggplot(aes(Importance, fct_reorder(Variable, Importance))) +
+  geom_col()
 ```
 
 
 ```{r}
-predictions %>% 
-  ggplot(aes(mwh, .pred)) +
+xg_final_fit |> 
+  augment(dt_test) |> 
+  ggplot(aes(auction_price_de_ch , .pred)) +
   geom_point(alpha = 0.2, colour = "midnightblue", size = 2) +
-  facet_wrap(~ type) +
   geom_abline(lty = "dashed", colour = "grey50") +
   scale_x_continuous(labels = scales::comma_format()) +
   scale_y_continuous(labels = scales::comma_format()) +
@@ -297,14 +291,13 @@ predictions %>%
 ```
 
 ```{r}
-xg_final_fit %>% 
-  extract_workflow() %>% 
-  augment(dt_test) %>% 
+xg_final_fit |> 
+  augment(dt_test) |> 
   mutate(model = "Gradient Boosting") |> 
-  transmute(date, model, prediction = .pred, actual = mwh) %>% 
-  pivot_longer(-c(date, model)) %>% 
+  transmute(date, model, prediction = .pred, actual = auction_price_de_ch) |> 
+  pivot_longer(-c(date, model)) |> 
   ggplot(aes(date, value, colour = name)) +
-  geom_line(alpha = 0.75, size = 0.75) +
+  geom_line(alpha = 0.75, linewidth = 0.75) +
   facet_wrap(~ model, nrow = 2) +
   labs(title = "Out-Of-Sample Time Series",
        y = NULL,
