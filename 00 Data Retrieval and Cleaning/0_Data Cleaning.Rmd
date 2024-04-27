@@ -51,6 +51,81 @@ df <- data_ch_de %>%
 rm(data_ch_de, data_de_ch)
 ```
 
+### Reorder and rename some variables to make it more understandable
+
+```{r}
+reorder_cols = c(
+  "date", "auction_price_ch_de", "auction_price_de_ch", 
+  "allocatedCapacity_ch_de", "allocatedCapacity_de_ch",
+  "ATC_ch_de", "ATC_de_ch", "dst", "day_ahead_price_at", "day_ahead_price_ch",
+  "day_ahead_price_de", "day_ahead_price_fr", "day_ahead_price_it"
+)
+
+df = bind_cols(
+  # Manually reordered columns
+  df |> 
+    select(any_of(reorder_cols)),
+  # Alphabetically reordered columns
+  df |> 
+    select(
+      df |> 
+        select(-any_of(reorder_cols)) |> 
+        colnames() |> 
+        sort()
+    )
+)
+```
+
+### Drop ATC as it is redundant
+
+```{r}
+df |> 
+  select(
+    date,
+    allocatedCapacity_ch_de, allocatedCapacity_de_ch,
+    ATC_ch_de, ATC_de_ch
+  ) |> 
+  pivot_longer(-date) |> 
+  mutate(
+    direction = case_when(
+      name == "allocatedCapacity_ch_de" ~ "ch_de",
+      name == "allocatedCapacity_de_ch" ~ "de_ch",
+      name == "ATC_ch_de" ~ "ch_de",
+      name == "ATC_de_ch" ~ "de_ch",
+    ),
+    name = case_when(
+      name == "allocatedCapacity_ch_de" ~ "allocated",
+      name == "allocatedCapacity_de_ch" ~ "allocated",
+      name == "ATC_ch_de" ~ "ATC",
+      name == "ATC_de_ch" ~ "ATC",
+    ),
+  ) |> 
+  ggplot(aes(date, value, colour = name)) +
+  geom_line(alpha = 0.5) +
+  facet_wrap(~ direction, ncol = 1)
+```
+
+```{r}
+df = df |> 
+  select(-contains("ATC"))
+```
+
+### Add Calendar Information
+
+```{r}
+df = df |> 
+  mutate(
+    cal_year = year(date),
+    cal_month = month(date),
+    cal_day_in_month = day(date),
+    cal_day_in_week = wday(date, label = F),
+    cal_week_in_year = week(date),
+    cal_quarter = quarter(date),
+    cal_hour_in_day = hour(date),
+  )
+```
+
+
 ### Removing missing values at the end of the dataframe
 
 Remove the most recent rows that contains NA:
@@ -166,6 +241,7 @@ Let's visualise the missingness in the rest of the variables:
 ```{r}
 #df |> 
 #  naniar::vis_miss(warn_large_data = F)
+
 ```
 
 ### Forecast variables
@@ -194,19 +270,6 @@ df <- df %>%
   select(!all_of(remove_forecast))
 ```
 
-### Reorder and rename some variables to make it more understandable
-
-```{r}
-reorder_cols = c("date", "auction_price_ch_de", "auction_price_de_ch",
-                 "allocatedCapacity_ch_de", "allocatedCapacity_de_ch",
-                 "ATC_ch_de", "ATC_de_ch")
-
-df = bind_cols(
-  df |> select(any_of(reorder_cols)),
-  df |> select(-any_of(reorder_cols))
-)
-```
-
 Write the non-imputed dataset to csv:
 
 ```{r}
@@ -228,18 +291,6 @@ df |>
 There are no missing values in the target variable.
 
 The imputation method used for this project after discussion with the supervisor is to fill missing values with zero and include a dummy variable indicating for each column with missing data which indicates whether data in this corresponding row is missing.
-
-
-```{r}
-df2 <- df #with missing INITIALIZE
-
-df3 <- as.matrix(df2)
-df4 <- df2 %>% 
-  select(missing_cols) %>% 
-  as.matrix()
-```
-
-
 
 ```{r}
 # Identify columns with missing values
@@ -265,9 +316,7 @@ df = bind_cols(
     select(any_of(missing_cols)) |> 
     mutate(id = 1:n()) |> 
     pivot_longer(-id) |> 
-    group_by(name) |> 
     mutate(value = ifelse(is.na(value), 0, value)) |> 
-    ungroup() |> 
     pivot_wider(names_from = name, values_from = value) |> 
     select(-id),
   # 3
@@ -275,9 +324,7 @@ df = bind_cols(
     select(any_of(missing_cols)) |> 
     mutate(id = 1:n()) |> 
     pivot_longer(-id) |> 
-    group_by(name) |> 
     mutate(value = ifelse(is.na(value), 1, 0)) |> 
-    ungroup() |> 
     mutate(name = paste0(name, "_missing_dummy")) |> 
     pivot_wider(names_from = name, values_from = value) |> 
     select(-id)
@@ -294,6 +341,109 @@ df |>
 
 There are no more columns with missing values left!
 
+### Check imputation 
+
+Having check that the imputation is correct we can say that: except for the third group, all the columns inside the same group share the same dummy 'distribution'. So we have to think of a dependence between this variable and how to proceed with the modelling. It's true that we introduce multicollinearity but the single dummy should represent different effect, so how to proceed? Should we reduce the dimension of dummy matrix or keep as it is now?
+
+```{r}
+duplicated = df |> 
+  select(contains("dummy")) |> 
+  pivot_longer(everything()) |> 
+  group_by(name) |> 
+  summarise(value = mean(value)) |> 
+  ungroup() |> 
+  group_by(value) |> 
+  mutate(mean_count = n()) |> 
+  ungroup() |> 
+  filter(mean_count != 1)
+
+duplicated |> 
+  group_by(name) |> 
+  nest(name = name) |> 
+  ungroup() |> 
+  mutate(
+    unique_values = map(name, function(NAME){
+      df |> 
+        select(pull(NAME)) |> 
+        mutate(row_idx = 1:n()) |> 
+        pivot_longer(-row_idx) |> 
+        group_by(row_idx) |> 
+        summarise(unique_values = n_distinct(value)) |> 
+        ungroup() |> 
+        filter(unique_values > 1) |> 
+        select(row_idx)
+    })
+  ) |> 
+  unnest(unique_values)
+```
+
+The code above checks
+- which dummies have the same column means
+- if all columns in these groups are exactly the same (by checking the number of unique values in each row, should be exactly one)
+
+```{r}
+duplicated |> 
+  arrange(mean_count) |> 
+  print(n=100)
+```
+
+Different "missing groups":
+- First: Hydro (2 columns)
+- Second: French variables (8 columns)
+- Third: Capacity, crossborder flows and others (32 columns)
+
+Reduce the dimensionality of the data frame:
+- remove the dummies that are redundant
+- introduce one new dummy per redundant group
+
+We are just using the first column in each group and drop all others (because they are redundant).
+
+```{r}
+new_dummies = df |> 
+  select(
+    duplicated |> 
+      group_by(mean_count) |>
+      slice(1) |> 
+      ungroup() |> 
+      arrange(mean_count) |> 
+      pull(name)
+  ) |> 
+  rename(
+    "g1_dummy" = "hydro_reservoir_storage_at_missing_dummy",
+    "g2_dummy" = "biomass_actual_aggregated_fr_missing_dummy",
+    "g3_dummy" = "actual_load_ch_missing_dummy",
+  )
+
+df = df |> 
+  select(-c(duplicated |> 
+              pull(name))) |> 
+  bind_cols(new_dummies)
+```
+
+Double check that we don't have redudant dummies anymore:
+
+```{r}
+df |> 
+  select(contains("dummy")) |> 
+  pivot_longer(everything()) |> 
+  group_by(name) |> 
+  summarise(value = mean(value)) |> 
+  ungroup() |> 
+  add_count(value) |> 
+  arrange(value) |> 
+  filter(n > 1)
+```
+
+Now we're okay:
+
+```{r}
+lm(day_ahead_price_de ~ ., data = df) |> 
+  broom::tidy() |> 
+  filter(is.na(estimate))
+```
+
+### Write the final data to file
+
 ```{r}
 df |> 
   write_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed.csv")
@@ -301,31 +451,18 @@ df |>
 
 Save the dataset in a file so we can use it in the future with the same imputation.
 
-# Check imputation 
+### Shifting the variables
 
+We have decided on three different scenarios:
+
+- A
+- B
+- C
 
 ```{r}
-cond <- is.na(df3)
-df_no_dummy <- df %>% 
-  select(colnames(df2))
-
-df_no_dummy <- data.matrix(df_no_dummy)
-df_no_dummy[cond] %>% sum() #ALL the NA where replaced by 0 in df
-
-missing_counts <- df2 %>%
-  select(missing_cols) %>% 
-  summarise_all(~ sum(is.na(.)))
-
-
-
-cond <- is.na(df4) #matrix of dummy
-df_dummy <- df %>% 
-  select(!colnames(df2))
-
-df_dummy[!cond] %>% sum() #All the non-NA where replaced by 0
-tib <- df_dummy %>% colSums() %>% tibble()
-tib2 <- t(missing_counts) %>% tibble()
-tib - tib2 #Also the umber of missing vaues coincide
+df |> 
+  colnames() |> 
+  sort()
 ```
 
 
@@ -335,86 +472,210 @@ After checking that the imputation was correct notice that same column of the th
 
 
 ```{r}
-#If the columns are identical they must have same mean
-mn <- colMeans(df_dummy)
-mn <- mn[duplicated(mn)] #choose duplicated
+df_scenario_a = df |> 
+  mutate(
+    across(contains("actual_load"), ~ lag(., n = 24)),
+    across(contains("biomass_actual_aggregated"), ~ lag(., n = 24)),
+    across(contains("capacity_forecast"), ~ lag(., n = 0)),
+    across(contains("crossborder_actual_flow"), ~ lag(., n = 24)),
+    across(contains("fossil_brown_coal_lignite_actual_aggregated"), ~ lag(., n = 24)),
+    across(contains("fossil_coal.derived_gas_actual_aggregated"), ~ lag(., n = 24)),
+    across(contains("fossil_gas_actual_aggregated"), ~ lag(., n = 24)),
+    across(contains("fossil_hard_coal_actual_aggregated"), ~ lag(., n = 24)),
+    across(contains("fossil_oil_actual_aggregated"), ~ lag(., n = 24)),
+    across(contains("geothermal_actual_aggregated"), ~ lag(., n = 24)),
+    across(contains("hydro_pumped_storage"), ~ lag(., n = 24)),
+    across(contains("hydro_pumped_storage_actual_aggregated"), ~ lag(., n = 24)),
+    across(contains("hydro_pumped_storage_actual_consumption"), ~ lag(., n = 24)),
+    across(contains("hydro_reservoir_storage"), ~ lag(., n = 24)),
+    across(contains("hydro_run.of.river_and_poundage"), ~ lag(., n = 24)),
+    across(contains("hydro_run.of.river_and_poundage_actual_aggregated"), ~ lag(., n = 24)),
+    across(contains("hydro_water_reservoir"), ~ lag(., n = 24)),
+    across(contains("hydro_water_reservoir_actual_aggregated"), ~ lag(., n = 24)),
+    across(contains("nuclear"), ~ lag(., n = 24)),
+    across(contains("nuclear_actual_aggregated"), ~ lag(., n = 24)),
+    across(contains("other_actual_aggregated"), ~ lag(., n = 24)),
+    across(contains("other_renewable_actual_aggregated"), ~ lag(., n = 24)),
+    across(contains("solar"), ~ lag(., n = 24)),
+    across(contains("solar_actual_aggregated"), ~ lag(., n = 24)),
+    across(contains("solar_forecast"), ~ lag(., n = 0)),
+    across(contains("waste_actual_aggregated"), ~ lag(., n = 24)),
+    across(contains("wind_offshore_actual_aggregated"), ~ lag(., n = 24)),
+    across(contains("wind_onshore"), ~ lag(., n = 24)),
+    across(contains("wind_onshore_actual_aggregated"), ~ lag(., n = 24)),
+    across(contains("wind_onshore_forecast"), ~ lag(., n = 0)),
+    g1_dummy = lag(g1_dummy, n = 24),
+    g2_dummy = lag(g2_dummy, n = 24),
+    g3_dummy = lag(g3_dummy, n = 24),
+  )
 
-dup <- unique(mn[duplicated(mn)])
-cond <- mn %in% dup 
-mn <- mn[cond]
-tib <- tibble(names = names(mn), values = mn)
-
-# Group by value and extract names
-same_value_names <- tib %>%
-  group_by(values) %>%
-  summarise(names = list(names)) %>%
-  filter(length(names) > 1) %>%
-  pull(names)
-
-#Count the number of 1 per col
-df_dummy %>% 
-  select(same_value_names[[1]]) %>% 
-  colSums()
-
-#Count the values per row. If all 1 then they sum up to 31
-row <- df_dummy %>% 
-  select(same_value_names[[1]]) %>% 
-  rowSums()
-
-same_value_names[[1]] %>% length
-
-(row == 32) %>% sum #The number of row == 32 should be equal to the number of 1 per columns -- > same df
-
-#REPEAT
-df_dummy %>% 
-  select(same_value_names[[2]]) %>% 
-  colSums()
-
-row <- df_dummy %>% 
-  select(same_value_names[[2]]) %>% 
-  rowSums()
-
-same_value_names[[2]] %>% length
-
-(row == 8) %>% sum
-
-
-df_dummy %>% 
-  select(same_value_names[[3]]) %>% 
-  colSums()
-
-row <- df_dummy %>% 
-  select(same_value_names[[3]]) %>% 
-  rowSums()
-
-same_value_names[[3]] %>% length
-
-(row == 2) %>% sum   ###FAILED
-
-
-df_dummy %>% 
-  select(same_value_names[[4]]) %>% 
-  colSums()
-
-row <- df_dummy %>% 
-  select(same_value_names[[4]]) %>% 
-  rowSums()
-
-same_value_names[[4]] %>% length
-
-(row == 2) %>% sum
+df_scenario_a |> write_csv("0_df_final_imputed_shifting_a.csv")
 ```
 
-Having check that the imputation is correct we can say that: except for the third group, all the columns inside the same group share the same dummy 'distribution'. So we have to think of a depence btw this variable and how to procede with the modelling. It's true that we introduce multicollinearity but the single dummy should represent different effect, so how to procede? Should we reduce the dimension of dummy matrix or keep as it is now?
+```{r}
+# Nothing gets shifted in b
+df_scenario_b = df
+df_scenario_b |> write_csv("0_df_final_imputed_shifting_b.csv")
+```
 
-The first group considers:
-capacity and alllcation of capacity it make sense that prset the same missing but is not clear how they are dependent with the otehrs.
+```{r}
+df_scenario_c = df |> 
+  mutate(
+    across(
+      contains("actual_load"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("biomass_actual_aggregated"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("capacity_forecast"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("crossborder_actual_flow"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("fossil_brown_coal_lignite_actual_aggregated"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("fossil_coal.derived_gas_actual_aggregated"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("fossil_gas_actual_aggregated"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("fossil_hard_coal_actual_aggregated"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("fossil_oil_actual_aggregated"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("geothermal_actual_aggregated"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("hydro_pumped_storage"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("hydro_pumped_storage_actual_aggregated"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("hydro_pumped_storage_actual_consumption"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("hydro_reservoir_storage"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("hydro_run.of.river_and_poundage"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("hydro_run.of.river_and_poundage_actual_aggregated"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("hydro_water_reservoir"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("hydro_water_reservoir_actual_aggregated"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("nuclear"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("nuclear_actual_aggregated"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("other_actual_aggregated"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("other_renewable_actual_aggregated"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("solar"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("solar_actual_aggregated"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("solar_forecast"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("waste_actual_aggregated"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("wind_offshore_actual_aggregated"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("wind_onshore"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("wind_onshore_actual_aggregated"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    across(
+      contains("wind_onshore_forecast"), 
+      ~ lag(., n = 24), 
+      .names = "{.col}_lag_24"
+    ),
+    g1_dummy_lag_24 = lag(g1_dummy, n = 24),
+    g2_dummy_lag_24 = lag(g2_dummy, n = 24),
+    g3_dummy_lag_24 = lag(g3_dummy, n = 24),
+  )
 
-The second group is dominanted by _fr variable so this can be teh source of dependence. 
-
-The fourth groupd is the same variable hydro_reservoir_storage for _at and _ch
-
-
-
-
+df_scenario_c |> write_csv("0_df_final_imputed_shifting_c.csv")
+```
 
