@@ -1,0 +1,267 @@
+---
+title: "Untitled"
+author: "Mathias Steilen"
+date: "2024-04-25"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(tidymodels)
+library(doParallel)
+library(ggsci)
+library(scales)
+library(vip)
+
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Default theme for charts
+theme_set(
+  theme_bw() +
+    theme(  
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(
+        face = "italic", size = 10, colour = "green50"
+      )
+    )
+)
+```
+
+```{r}
+df = read_csv("../../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_a.csv")
+```
+
+### Drop columns that can't be used
+
+```{r}
+# df = df |> 
+#   select(-c(
+#     auction_price_ch_de, allocatedCapacity_ch_de
+#   ))
+```
+
+
+### Shift the other target variables
+
+Anything that is a target variable in our project has not been shifted yet.
+
+Anything that is not a target variable in some project is shifted according to the A, B, C logic that we discussed.
+
+```{r}
+df = df |> 
+  mutate(
+    auction_price_ch_de = lag(auction_price_ch_de, n = 24),
+    auction_price_de_ch = lag(auction_price_de_ch, n = 24),
+    allocatedCapacity_ch_de = lag(allocatedCapacity_ch_de, n = 24),
+    allocatedCapacity_de_ch = lag(allocatedCapacity_de_ch, n = 24),
+    day_ahead_price_at = lag(day_ahead_price_at, n = 24),
+    # day_ahead_price_ch = lag(day_ahead_price_ch, n = 24),
+    day_ahead_price_de = lag(day_ahead_price_de, n = 24),
+    day_ahead_price_fr = lag(day_ahead_price_fr, n = 24),
+    day_ahead_price_it = lag(day_ahead_price_it, n = 24),
+  ) |> 
+  drop_na()
+
+df |> glimpse()
+```
+
+### Tuning Loop
+
+```{r}
+min_stamp = c(
+  min(df$date), 
+  ymd("2021-06-01"), 
+  ymd("2023-03-01"),
+  min(df$date)
+)
+
+max_stamp = c(
+  ymd("2021-06-01"),
+  ymd("2023-03-01"),
+  max(df$date),
+  max(df$date)
+)
+```
+
+```{r}
+for (i in 1:length(min_stamp)){
+  
+  # train and test split
+  df_full = df |> 
+    filter(date >= min_stamp[i]) |> 
+    filter(date < max_stamp[i]) |> 
+    arrange(date)
+  
+  train_ratio = 0.7
+  train_index = ceiling(nrow(df_full)*train_ratio)
+  test_index = floor(nrow(df_full)*(1-train_ratio))
+  
+  dt_train = df_full |> head(train_index)
+  dt_test = df_full |> tail(test_index)
+  
+  # Time Series Split for tuning
+  initial_split = 0.5
+  increment = 0.1
+  train_perc = 0.7
+  
+  initial_train = floor(nrow(dt_train)*(initial_split+increment)*train_perc)
+  initial_test = round(floor(nrow(dt_train) * initial_split * (1-train_perc)))
+  
+  folds = rolling_origin(
+    dt_train, 
+    initial = initial_train, 
+    assess = initial_test,
+    skip = round(increment * nrow(dt_train)),
+    cumulative = T
+  )
+  
+  # Recipe for preprocessing
+  xg_rec <- recipe(day_ahead_price_ch ~ ., data = dt_train) |>
+    update_role(date, new_role = "ID") |>
+    step_zv(all_predictors()) |> 
+    step_impute_mean(all_predictors()) |> 
+    step_center(all_predictors()) |> 
+    step_scale(all_predictors())
+  
+  # Model specification
+  xg_spec <- boost_tree(mtry = tune(),
+                        trees = tune(),
+                        min_n = tune(),
+                        tree_depth = tune(),
+                        learn_rate = tune()) |>
+    set_engine("xgboost") |>
+    set_mode("regression")
+  
+  xg_wflow <- workflow() |> 
+    add_recipe(xg_rec) |> 
+    add_model(xg_spec)
+  
+  # Setting grid for hyperparameter tuning
+  xg_grid <- grid_latin_hypercube(
+    finalize(mtry(), dt_train),
+    trees(),
+    min_n(),
+    tree_depth(),
+    learn_rate(),
+    size = 30
+  ) # 6.2 hours with 100
+  
+  start_time = Sys.time()
+  # Tuning Hyperparameters
+  unregister_dopar <- function() {
+    env <- foreach:::.foreachGlobals
+    rm(list=ls(name=env), pos=env)
+  }
+  
+  cl <- makePSOCKcluster(4)
+  registerDoParallel(cl)
+  
+  xg_tune <- tune_grid(object = xg_wflow,
+                       grid = xg_grid,
+                       resamples = folds)
+  
+  stopCluster(cl)
+  unregister_dopar()
+  end_time = Sys.time()
+  print(end_time - start_time)
+  
+  # Write results to csv
+  tuning_results = xg_tune |> 
+    collect_metrics()
+  
+  tuning_results |> 
+    write_csv(paste0("tuning_grid_results_split_", i, ".csv"))
+  
+  # Fit the best model
+  best_combination = tuning_results |> 
+    filter(.metric == "rmse") |> 
+    arrange(mean) |> 
+    head(1)
+  
+  xg_spec <- boost_tree(
+    mtry = best_combination$mtry,
+    trees = best_combination$trees,
+    min_n = best_combination$min_n,
+    tree_depth = best_combination$tree_depth,
+    learn_rate = best_combination$learn_rate,
+  ) |>
+    set_engine("xgboost") |>
+    set_mode("regression")
+  
+  xg_wflow <- workflow() |> 
+    add_recipe(xg_rec) |> 
+    add_model(xg_spec)
+  
+  xg_final_fit <- xg_wflow |> 
+    fit(dt_train)
+  
+  # Write variable importance
+  xg_final_fit |>
+    extract_fit_parsnip() |>
+    vip::vi() |> 
+    write_csv(paste0("variable_importance_split_", i, ".csv"))
+  
+  # Write predictions
+  xg_final_fit |> 
+    augment(dt_test) |> 
+    select(date, day_ahead_price_ch, .pred) |> 
+    write_csv(paste0("holdout_predictions_split_", i, ".csv"))
+  
+}
+```
+
+### Model Evaluation
+
+TBD: 
+- Read the tuning results
+- Read the fit results
+- Calc holdout metrics
+- Plots for final presentation
+
+```{r}
+holdout_preds = bind_rows(
+  read_csv("holdout_predictions_split_1.csv") |> mutate(period = "Split 1"),
+  read_csv("holdout_predictions_split_2.csv") |> mutate(period = "Split 2"),
+  read_csv("holdout_predictions_split_3.csv") |> mutate(period = "Split 3"),
+)
+
+eval_metrics = metric_set(rsq, rmse, mae, mape)
+
+holdout_preds |> 
+  group_by(period) |> 
+  eval_metrics(truth = .pred, estimate = day_ahead_price_ch) |> 
+  select(-.estimator) |> 
+  pivot_wider(names_from = .metric, values_from = .estimate)
+  
+
+holdout_preds |> 
+  ggplot(aes(day_ahead_price_ch , .pred)) +
+  geom_point(alpha = 0.2, colour = "midnightblue", size = 2) +
+  geom_abline(lty = "dashed", colour = "grey50") +
+  scale_x_continuous(labels = scales::comma_format()) +
+  scale_y_continuous(labels = scales::comma_format()) +
+  facet_wrap(~ period, scales = "free") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+holdout_preds |> 
+  pivot_longer(-c(date, period)) |> 
+  ggplot(aes(date, value, colour = name)) +
+  geom_line(alpha = 0.75, linewidth = 0.75) +
+  facet_wrap(~ period, ncol = 1, scales = "free") +
+  labs(title = "Out-Of-Sample Time Series",
+       y = NULL,
+       x = NULL,
+       colour = NULL) +
+  ggsci::scale_colour_jama() +
+  scale_y_continuous(labels = scales::comma_format(suffix = " MWh")) +
+  theme_bw() +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        plot.subtitle = element_text(face = "italic", size = 12,
+                                     colour = "grey50"),
+        legend.position = "bottom")
+```
