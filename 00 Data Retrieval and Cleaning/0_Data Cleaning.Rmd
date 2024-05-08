@@ -239,8 +239,9 @@ df = df |>
 Let's visualise the missingness in the rest of the variables:
 
 ```{r}
-# df |> 
-#   naniar::vis_miss(warn_large_data = F)
+#df |> 
+#  naniar::vis_miss(warn_large_data = F)
+
 ```
 
 ### Forecast variables
@@ -497,6 +498,11 @@ df |> colnames()
 ```
 
 Start with the three different approaches (A, B, C):
+
+# Observation from dummies column
+
+After checking that the imputation was correct notice that same column of the the missing values coincide  with each other.We decide to identify this column and use only one dummy.
+
 
 ```{r}
 df_scenario_a = df |> 
@@ -986,8 +992,4 @@ df_scenario_c |>
   count(value)
 
 df_scenario_c |> write_csv("0_df_final_imputed_shifting_c.csv")
-```
-
-```{r}
-
 ```

@@ -1,0 +1,454 @@
+---
+title: "Outofsample"
+author: "Federico Deotto"
+date: "2024-05-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(lubridate)
+library(ggsci)
+library(scales)
+library(shiny)
+library(ncvreg)
+
+library(fastTS)
+library(xts)
+
+
+source('builtin_functions.R')
+
+
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Default theme for charts
+theme_set(
+  theme_bw() +
+    theme(  
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(
+        face = "italic", size = 10, colour = "green50"
+      )
+    )
+)
+
+```
+
+## JAO _de_ch
+
+
+```{r}
+df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_a.csv") %>% 
+  mutate(
+    across(day_ahead_price_at, ~lag(., 24)),
+    across(day_ahead_price_de, ~lag(., 24)),
+    across(day_ahead_price_fr, ~lag(., 24)),
+    across(day_ahead_price_it, ~lag(., 24)),
+    across(day_ahead_price_ch, ~lag(., 24)),
+    across(auction_price_ch_de, ~lag(., 24)),
+    across(allocatedCapacity_ch_de, ~lag(., 24)),
+    across(allocatedCapacity_de_ch, ~lag(., 24))) %>% 
+  arrange(date) %>% 
+  slice(25:n()) %>% 
+  mutate(date = with_tz(date, tzone = "UTC")) %>% 
+  mutate_at(vars(-date), as.numeric)
+
+dummies_columns <- df %>%
+  select(contains(c("_dummy", "cal_"))) %>% 
+  colnames()
+
+factor_colums <- c('dst', dummies_columns)
+
+df <- df %>%
+  mutate_at(vars(factor_colums), factor)
+
+first_cut <- as.POSIXct("2021-06-30 23:00:00", tz = "UTC")
+second_cut <- as.POSIXct("2022-12-31 23:00:00", tz = "UTC")
+
+x <- df %>%
+  select(contains(c('cal_', 'dst')))
+
+formula_str <- paste("~ dst +",
+                     paste(names(x)[-which(names(x) == "dst")], " * dst", sep = "", collapse = " + "), sep = "")
+formula_str <- formula(formula_str)
+
+x <- model.matrix(formula_str, data = x) %>% as_tibble() %>% select(-contains("Intercept")) %>% 
+  mutate_all(., as.factor)
+
+cond <- x %>%
+  mutate_all(as.numeric) %>% 
+  apply(., 2, function(x) all(x == 1))
+
+omit_names <- colnames(x)[cond]
+
+x <- x %>% 
+  select(-omit_names)
+
+df <- df %>% 
+  select(-contains(c('cal_', 'dst'))) %>% 
+  bind_cols(., x)
+
+rm(x)
+
+discontinue_variables <- df %>% 
+  select(where(is.numeric)) %>% 
+  slice(1700:1900) %>%     #easy for compuattion to subset
+  detect_columns_with_consecutive(n_consecutive = 13) %>%
+  select(-c(allocatedCapacity_ch_de, allocatedCapacity_de_ch)) %>% 
+  select(-contains('forecast')) %>% 
+  names()
+
+
+df2 <- df %>% 
+  select(c('date', 'auction_price_de_ch', 'auction_price_de_ch', 'day_ahead_price_ch', 'day_ahead_price_de'))
+
+df <- df %>%
+  mutate(across(all_of(discontinue_variables), ~ ksmooth_column(., band = 3))) %>% 
+  mutate_at(vars(all_of('auction_price_de_ch')), ~ boxcox_transform(., lambda = -1.5))
+
+df %>% 
+  nrow()
+
+df  %>% 
+  filter(date > second_cut) %>% 
+  nrow()
+
+lag_4 =24*1.5*30 # 1.5 month
+```
+
+
+
+```{r}
+df2 %>% 
+  ggplot(aes(x = date))+
+  geom_line(aes(y = day_ahead_price_de))
+```
+```{r}
+df %>% 
+  mutate_at(vars(all_of('day_ahead_price_de')), ~ boxcox_transform(., lambda = 0)) %>% 
+  ggplot(aes(x = date))+
+  geom_line(aes(y = day_ahead_price_de))
+```
+
+```{r}
+variances = df %>%  
+  filter(date > second_cut) %>% 
+  select(-c(date, auction_price_de_ch)) %>%  
+  mutate_all(as.numeric) %>%
+  apply(2, var)
+
+null_variance_cols <- names(variances[variances == 0])
+
+mod_outofsample_de_ch <- df  %>% 
+  select(!all_of(null_variance_cols)) %>%
+  filter(date > second_cut) %>% 
+  model_list_prediction(n_lags_max = lag_4, response = 'auction_price_de_ch', ptrain = 0.7) 
+saveRDS(mod_outofsample_de_ch, "mod_outofsample_de_ch.rds")
+
+```
+
+
+
+
+```{r}
+read_coef(mod_outofsample_de_ch)
+model <- mod_outofsample_de_ch$fits[[1]]  
+sum_stat <- model_selected(mod_outofsample_de_ch, model, p.train = 0.7)
+mod_outofsample_de_ch$oos_results
+result <- prediction_model(mod_outofsample_de_ch, 0.7, lag_4)
+```
+
+```{r}
+rm(mod_outofsample_de_ch, sum_stat, result)
+```
+
+
+# JAO _ch_de
+
+```{r}
+df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_a.csv") %>% 
+  mutate(
+    across(day_ahead_price_at, ~lag(., 24)),
+    across(day_ahead_price_de, ~lag(., 24)),
+    across(day_ahead_price_fr, ~lag(., 24)),
+    across(day_ahead_price_it, ~lag(., 24)),
+    across(day_ahead_price_ch, ~lag(., 24)),
+    across(auction_price_de_ch, ~lag(., 24)),
+    across(allocatedCapacity_ch_de, ~lag(., 24)),
+    across(allocatedCapacity_de_ch, ~lag(., 24))) %>% 
+  arrange(date) %>% 
+  slice(25:n()) %>% 
+  mutate(date = with_tz(date, tzone = "UTC")) %>% 
+  mutate_at(vars(-date), as.numeric)
+
+
+dummies_columns <- df %>%
+  select(contains(c("_dummy", "cal_"))) %>% 
+  colnames()
+
+factor_colums <- c('dst', dummies_columns)
+df <- df %>%
+  mutate_at(vars(factor_colums), factor)
+
+
+x <- df %>%
+  select(contains(c('cal_', 'dst')))
+
+
+formula_str <- paste("~ dst +",
+                     paste(names(x)[-which(names(x) == "dst")], " * dst", sep = "", collapse = " + "), sep = "")
+formula_str <- formula(formula_str)
+
+x <- model.matrix(formula_str, data = x) %>% as_tibble() %>% select(-contains("Intercept")) %>% 
+  mutate_all(., as.factor)
+
+cond <- x %>%
+  mutate_all(as.numeric) %>% 
+  apply(., 2, function(x) all(x == 1))
+
+omit_names <- colnames(x)[cond]
+
+x <- x %>% 
+  select(-omit_names)
+
+df <- df %>% 
+  select(-contains(c('cal_', 'dst'))) %>% 
+  bind_cols(., x)
+
+rm(x)
+
+discontinue_variables <- df %>% 
+  select(where(is.numeric)) %>% 
+  slice(1700:1900) %>%     #easy for compuattion to subset
+  detect_columns_with_consecutive(n_consecutive = 13) %>%
+  select(-c(allocatedCapacity_ch_de, allocatedCapacity_de_ch)) %>% 
+  select(-contains('forecast')) %>% 
+  names()
+
+df <- df %>%
+  mutate(across(all_of(discontinue_variables), ~ ksmooth_column(., band = 3))) %>% 
+  mutate_at(vars(all_of('auction_price_ch_de')), ~ boxcox_transform(., lambda = -1.5))
+```
+
+```{r}
+variances = df %>%  
+  filter(date > second_cut) %>% 
+  select(-c(date, auction_price_ch_de)) %>%  
+  mutate_all(as.numeric) %>%
+  apply(2, var)
+
+null_variance_cols <- names(variances[variances == 0])
+
+mod_outofsample_ch_de <- df  %>% 
+  select(!all_of(null_variance_cols)) %>%
+  filter(date > second_cut) %>% 
+  model_list_prediction(n_lags_max = lag_4, response = 'auction_price_ch_de', ptrain = 0.7) 
+saveRDS(mod_outofsample_ch_de, "mod_outofsample_ch_de.rds")
+```
+
+
+```{r}
+read_coef(mod_outofsample_ch_de)
+model <- mod_outofsample_ch_de$fits[[1]]  
+sum_stat <- model_selected(mod_outofsample_ch_de, model, p.train = 0.7)
+mod_outofsample_ch_de$oos_results
+result <- prediction_model(mod_outofsample_ch_de, 0.7, lag_4)
+```
+
+```{r}
+rm(mod_outofsample_ch_de, sum_stat, result)
+```
+
+
+# DE
+
+```{r}
+df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_a.csv") %>% 
+  mutate(
+    across(day_ahead_price_at, ~lag(., 24)),
+    across(day_ahead_price_ch, ~lag(., 24)),
+    across(day_ahead_price_fr, ~lag(., 24)),
+    across(day_ahead_price_it, ~lag(., 24)),
+    across(auction_price_ch_de, ~lag(., 24)),
+    across(auction_price_de_ch, ~lag(., 24)),
+    across(allocatedCapacity_ch_de, ~lag(., 24)),
+    across(allocatedCapacity_de_ch, ~lag(., 24))) %>% 
+  arrange(date) %>% 
+  slice(25:n()) %>% 
+  mutate(date = with_tz(date, tzone = "UTC")) %>% 
+  mutate_at(vars(-date), as.numeric)
+
+dummies_columns <- df %>%
+  select(contains(c("_dummy", "cal_"))) %>% 
+  colnames()
+
+factor_colums <- c('dst', dummies_columns)
+
+df <- df %>%
+  mutate_at(vars(factor_colums), factor)
+
+x <- df %>%
+  select(contains(c('cal_', 'dst')))
+
+formula_str <- paste("~ dst +",
+                     paste(names(x)[-which(names(x) == "dst")], " * dst", sep = "", collapse = " + "), sep = "")
+formula_str <- formula(formula_str)
+
+x <- model.matrix(formula_str, data = x) %>% as_tibble() %>% select(-contains("Intercept")) %>% 
+  mutate_all(., as.factor)
+
+cond <- x %>%
+  mutate_all(as.numeric) %>% 
+  apply(., 2, function(x) all(x == 1))
+
+omit_names <- colnames(x)[cond]
+
+x <- x %>% 
+  select(-omit_names)
+
+df <- df %>% 
+  select(-contains(c('cal_', 'dst'))) %>% 
+  bind_cols(., x)
+
+rm(x)
+
+discontinue_variables <- df %>% 
+  select(where(is.numeric)) %>% 
+  slice(1700:1900) %>%     #easy for compuattion to subset
+  detect_columns_with_consecutive(n_consecutive = 13) %>%
+  select(-c(allocatedCapacity_ch_de, allocatedCapacity_de_ch)) %>% 
+  select(-contains('forecast')) %>% 
+  names()
+
+
+df <- df %>%
+  mutate(across(all_of(discontinue_variables), ~ ksmooth_column(., band = 3))) %>% 
+  mutate_at(vars(all_of('day_ahead_price_de')), ~ boxcox_transform(., lambda = 0))
+```
+
+```{r}
+variances = df %>%  
+  filter(date > second_cut) %>% 
+  select(-c(date, day_ahead_price_de)) %>%  
+  mutate_all(as.numeric) %>%
+  apply(2, var)
+
+null_variance_cols <- names(variances[variances == 0])
+
+mod_outofsample_de <- df  %>% 
+  select(!all_of(null_variance_cols)) %>%
+  filter(date > second_cut) %>% 
+  model_list(nlag = lag_4, response = 'day_ahead_price_de', p.train = 0.7) 
+  #model_list_prediction(n_lags_max = lag_4, response = 'day_ahead_price_de', ptrain = 0.7) 
+saveRDS(mod_outofsample_de, "mod_outofsample_de.rds")
+```
+
+
+```{r}
+read_coef(mod_outofsample_de)
+model <- mod_outofsample_de$fits[[1]]  
+sum_stat <- model_selected(mod_outofsample_de, model, p.train = 0.7)
+mod_outofsample_de$oos_results
+result <- prediction_model(mod_outofsample_de, 0.7, lag_4)
+```
+
+```{r}
+rm(mod_outofsample_de, sum_stat, result)
+```
+# CH
+
+
+```{r}
+df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_a.csv") %>% 
+  mutate(
+    across(day_ahead_price_at, ~lag(., 24)),
+    across(day_ahead_price_de, ~lag(., 24)),
+    across(day_ahead_price_fr, ~lag(., 24)),
+    across(day_ahead_price_it, ~lag(., 24)),
+    across(auction_price_ch_de, ~lag(., 24)),
+    across(auction_price_de_ch, ~lag(., 24)),
+    across(allocatedCapacity_ch_de, ~lag(., 24)),
+    across(allocatedCapacity_de_ch, ~lag(., 24))) %>% 
+  arrange(date) %>% 
+  slice(25:n()) %>% 
+  mutate(date = with_tz(date, tzone = "UTC")) %>% 
+  mutate_at(vars(-date), as.numeric)
+
+dummies_columns <- df %>%
+  select(contains(c("_dummy", "cal_"))) %>% 
+  colnames()
+
+factor_colums <- c('dst', dummies_columns)
+
+df <- df %>%
+  mutate_at(vars(factor_colums), factor)
+
+x <- df %>%
+  select(contains(c('cal_', 'dst')))
+
+
+formula_str <- paste("~ dst +",
+                     paste(names(x)[-which(names(x) == "dst")], " * dst", sep = "", collapse = " + "), sep = "")
+formula_str <- formula(formula_str)
+
+x <- model.matrix(formula_str, data = x) %>% as_tibble() %>% select(-contains("Intercept")) %>% 
+  mutate_all(., as.factor)
+
+cond <- x %>%
+  mutate_all(as.numeric) %>% 
+  apply(., 2, function(x) all(x == 1))
+
+omit_names <- colnames(x)[cond]
+
+x <- x %>% 
+  select(-omit_names)
+
+df <- df %>% 
+  select(-contains(c('cal_', 'dst'))) %>% 
+  bind_cols(., x)
+
+rm(x)
+
+discontinue_variables <- df %>% 
+  select(where(is.numeric)) %>% 
+  slice(1700:1900) %>%     #easy for compuattion to subset
+  detect_columns_with_consecutive(n_consecutive = 13) %>%
+  select(-c(allocatedCapacity_ch_de, allocatedCapacity_de_ch)) %>% 
+  select(-contains('forecast')) %>% 
+  names()
+
+
+df <- df %>%
+  mutate(across(all_of(discontinue_variables), ~ ksmooth_column(., band = 3))) %>% 
+   mutate_at(vars(all_of('day_ahead_price_ch')), ~ boxcox_transform(., lambda = 0))
+```
+
+
+```{r}
+variances = df %>%  
+  filter(date > second_cut) %>% 
+  select(-c(date, day_ahead_price_ch)) %>%  
+  mutate_all(as.numeric) %>%
+  apply(2, var)
+
+null_variance_cols <- names(variances[variances == 0])
+
+mod_outofsample_ch <- df  %>% 
+  select(!all_of(null_variance_cols)) %>%
+  filter(date > second_cut) %>% 
+  model_list(nlag = lag_4, response = 'day_ahead_price_ch', p.train = 0.7) 
+  #model_list_prediction(n_lags_max = lag_4, response = 'day_ahead_price_ch', ptrain = 0.7) 
+saveRDS(mod_outofsample_ch, "mod_outofsample_ch.rds")
+```
+
+
+```{r}
+read_coef(mod_outofsample_ch)
+model <- mod_outofsample_ch$fits[[1]]  
+sum_stat <- model_selected(mod_outofsample_ch, model, p.train = 0.7)
+mod_outofsample_ch$oos_results
+result <- prediction_model(mod_outofsample_ch, 0.7, lag_4)
+```
