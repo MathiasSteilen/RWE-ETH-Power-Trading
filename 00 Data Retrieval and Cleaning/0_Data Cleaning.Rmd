@@ -459,12 +459,45 @@ We have decided on three different scenarios:
 - B
 - C
 
+Check for missing values: 
+
 ```{r}
 df |> 
-  colnames() |> 
-  sort()
+  is.na() |> 
+  colSums() |> 
+  enframe() |> 
+  filter(value > 0)
 ```
 
+None left.
+
+Sort the column names to make the overview easier:
+
+```{r}
+reorder_cols = df |> 
+  select(
+    date, contains("auction_price"), contains("allocatedCapacity"),
+    contains("dst"), contains("day_ahead_price")
+  ) |> 
+  colnames()
+
+df = df |> 
+  select(
+    reorder_cols,
+    df |> 
+      select(-any_of(reorder_cols)) |> 
+      colnames() |> 
+      sort()
+  )
+
+df |> glimpse()
+```
+
+```{r}
+df |> colnames()
+```
+
+Start with the three different approaches (A, B, C):
 
 # Observation from dummies column
 
@@ -474,40 +507,106 @@ After checking that the imputation was correct notice that same column of the th
 ```{r}
 df_scenario_a = df |> 
   mutate(
-    across(contains("actual_load"), ~ lag(., n = 24)),
-    across(contains("biomass_actual_aggregated"), ~ lag(., n = 24)),
-    across(contains("capacity_forecast"), ~ lag(., n = 0)),
-    across(contains("crossborder_actual_flow"), ~ lag(., n = 24)),
-    across(contains("fossil_brown_coal_lignite_actual_aggregated"), ~ lag(., n = 24)),
-    across(contains("fossil_coal.derived_gas_actual_aggregated"), ~ lag(., n = 24)),
-    across(contains("fossil_gas_actual_aggregated"), ~ lag(., n = 24)),
-    across(contains("fossil_hard_coal_actual_aggregated"), ~ lag(., n = 24)),
-    across(contains("fossil_oil_actual_aggregated"), ~ lag(., n = 24)),
-    across(contains("geothermal_actual_aggregated"), ~ lag(., n = 24)),
-    across(contains("hydro_pumped_storage"), ~ lag(., n = 24)),
-    across(contains("hydro_pumped_storage_actual_aggregated"), ~ lag(., n = 24)),
-    across(contains("hydro_pumped_storage_actual_consumption"), ~ lag(., n = 24)),
-    across(contains("hydro_reservoir_storage"), ~ lag(., n = 24)),
-    across(contains("hydro_run.of.river_and_poundage"), ~ lag(., n = 24)),
-    across(contains("hydro_run.of.river_and_poundage_actual_aggregated"), ~ lag(., n = 24)),
-    across(contains("hydro_water_reservoir"), ~ lag(., n = 24)),
-    across(contains("hydro_water_reservoir_actual_aggregated"), ~ lag(., n = 24)),
-    across(contains("nuclear"), ~ lag(., n = 24)),
-    across(contains("nuclear_actual_aggregated"), ~ lag(., n = 24)),
-    across(contains("other_actual_aggregated"), ~ lag(., n = 24)),
-    across(contains("other_renewable_actual_aggregated"), ~ lag(., n = 24)),
-    across(contains("solar"), ~ lag(., n = 24)),
-    across(contains("solar_actual_aggregated"), ~ lag(., n = 24)),
-    across(contains("solar_forecast"), ~ lag(., n = 0)),
-    across(contains("waste_actual_aggregated"), ~ lag(., n = 24)),
-    across(contains("wind_offshore_actual_aggregated"), ~ lag(., n = 24)),
-    across(contains("wind_onshore"), ~ lag(., n = 24)),
-    across(contains("wind_onshore_actual_aggregated"), ~ lag(., n = 24)),
-    across(contains("wind_onshore_forecast"), ~ lag(., n = 0)),
-    g1_dummy = lag(g1_dummy, n = 24),
-    g2_dummy = lag(g2_dummy, n = 24),
-    g3_dummy = lag(g3_dummy, n = 24),
+    across(actual_load_at, ~lag(., 24)),
+    across(actual_load_ch, ~lag(., 24)),
+    across(actual_load_de, ~lag(., 24)),
+    across(actual_load_fr, ~lag(., 24)),
+    across(actual_load_fr_missing_dummy, ~lag(., 24)),
+    across(actual_load_it, ~lag(., 24)),
+    across(biomass_actual_aggregated_at, ~lag(., 24)),
+    across(biomass_actual_aggregated_de, ~lag(., 24)),
+    across(biomass_actual_aggregated_fr, ~lag(., 24)),
+    across(biomass_actual_aggregated_it, ~lag(., 24)),
+    across(crossborder_actual_flow_at_ch, ~lag(., 24)),
+    across(crossborder_actual_flow_ch_at, ~lag(., 24)),
+    across(crossborder_actual_flow_ch_de_lu, ~lag(., 24)),
+    across(crossborder_actual_flow_ch_fr, ~lag(., 24)),
+    across(crossborder_actual_flow_ch_it, ~lag(., 24)),
+    across(crossborder_actual_flow_de_lu_ch, ~lag(., 24)),
+    across(crossborder_actual_flow_fr_ch, ~lag(., 24)),
+    across(crossborder_actual_flow_it_ch, ~lag(., 24)),
+    across(fossil_brown_coal_lignite_actual_aggregated_de, ~lag(., 24)),
+    across(`fossil_coal-derived_gas_actual_aggregated_it`, ~lag(., 24)),
+    across(`fossil_coal-derived_gas_actual_aggregated_it_missing_dummy`, ~lag(., 24)),
+    across(fossil_gas_actual_aggregated_at, ~lag(., 24)),
+    across(fossil_gas_actual_aggregated_de, ~lag(., 24)),
+    across(fossil_gas_actual_aggregated_fr, ~lag(., 24)),
+    across(fossil_gas_actual_aggregated_it, ~lag(., 24)),
+    across(fossil_hard_coal_actual_aggregated_at, ~lag(., 24)),
+    across(fossil_hard_coal_actual_aggregated_de, ~lag(., 24)),
+    across(fossil_hard_coal_actual_aggregated_fr, ~lag(., 24)),
+    across(fossil_hard_coal_actual_aggregated_fr_missing_dummy, ~lag(., 24)),
+    across(fossil_hard_coal_actual_aggregated_it, ~lag(., 24)),
+    across(fossil_oil_actual_aggregated_de, ~lag(., 24)),
+    across(fossil_oil_actual_aggregated_fr, ~lag(., 24)),
+    across(fossil_oil_actual_aggregated_it, ~lag(., 24)),
+    across(fossil_oil_actual_aggregated_it_missing_dummy, ~lag(., 24)),
+    across(g1_dummy, ~lag(., 24)),
+    across(g2_dummy, ~lag(., 24)),
+    across(g3_dummy, ~lag(., 24)),
+    across(geothermal_actual_aggregated_de, ~lag(., 24)),
+    across(geothermal_actual_aggregated_it, ~lag(., 24)),
+    across(hydro_pumped_storage_actual_aggregated_at, ~lag(., 24)),
+    across(hydro_pumped_storage_actual_aggregated_de, ~lag(., 24)),
+    across(hydro_pumped_storage_actual_aggregated_fr, ~lag(., 24)),
+    across(hydro_pumped_storage_actual_aggregated_it, ~lag(., 24)),
+    across(hydro_pumped_storage_actual_aggregated_it_missing_dummy, ~lag(., 24)),
+    across(hydro_pumped_storage_actual_consumption_at, ~lag(., 24)),
+    across(hydro_pumped_storage_actual_consumption_de, ~lag(., 24)),
+    across(hydro_pumped_storage_actual_consumption_fr, ~lag(., 24)),
+    across(hydro_pumped_storage_actual_consumption_it, ~lag(., 24)),
+    across(hydro_pumped_storage_actual_consumption_it_missing_dummy, ~lag(., 24)),
+    across(hydro_pumped_storage_ch, ~lag(., 24)),
+    across(hydro_reservoir_storage_at, ~lag(., 24)),
+    across(hydro_reservoir_storage_ch, ~lag(., 24)),
+    across(hydro_reservoir_storage_fr, ~lag(., 24)),
+    across(hydro_reservoir_storage_fr_missing_dummy, ~lag(., 24)),
+    across(hydro_reservoir_storage_it, ~lag(., 24)),
+    across(hydro_reservoir_storage_it_missing_dummy, ~lag(., 24)),
+    across(`hydro_run-of-river_and_poundage_actual_aggregated_at`, ~lag(., 24)),
+    across(`hydro_run-of-river_and_poundage_actual_aggregated_de`, ~lag(., 24)),
+    across(`hydro_run-of-river_and_poundage_actual_aggregated_fr`, ~lag(., 24)),
+    across(`hydro_run-of-river_and_poundage_actual_aggregated_it`, ~lag(., 24)),
+    across(`hydro_run-of-river_and_poundage_ch`, ~lag(., 24)),
+    across(hydro_water_reservoir_actual_aggregated_at, ~lag(., 24)),
+    across(hydro_water_reservoir_actual_aggregated_de, ~lag(., 24)),
+    across(hydro_water_reservoir_actual_aggregated_fr, ~lag(., 24)),
+    across(hydro_water_reservoir_actual_aggregated_fr_missing_dummy, ~lag(., 24)),
+    across(hydro_water_reservoir_actual_aggregated_it, ~lag(., 24)),
+    across(hydro_water_reservoir_actual_aggregated_it_missing_dummy, ~lag(., 24)),
+    across(hydro_water_reservoir_ch, ~lag(., 24)),
+    across(nuclear_actual_aggregated_de, ~lag(., 24)),
+    across(nuclear_actual_aggregated_de_missing_dummy, ~lag(., 24)),
+    across(nuclear_actual_aggregated_fr, ~lag(., 24)),
+    across(nuclear_ch, ~lag(., 24)),
+    across(other_actual_aggregated_de, ~lag(., 24)),
+    across(other_actual_aggregated_it, ~lag(., 24)),
+    across(other_actual_aggregated_it_missing_dummy, ~lag(., 24)),
+    across(other_renewable_actual_aggregated_de, ~lag(., 24)),
+    across(solar_actual_aggregated_at, ~lag(., 24)),
+    across(solar_actual_aggregated_de, ~lag(., 24)),
+    across(solar_actual_aggregated_fr, ~lag(., 24)),
+    across(solar_actual_aggregated_it, ~lag(., 24)),
+    across(solar_ch, ~lag(., 24)),
+    across(waste_actual_aggregated_de, ~lag(., 24)),
+    across(waste_actual_aggregated_fr, ~lag(., 24)),
+    across(waste_actual_aggregated_it, ~lag(., 24)),
+    across(wind_offshore_actual_aggregated_de, ~lag(., 24)),
+    across(wind_onshore_actual_aggregated_at, ~lag(., 24)),
+    across(wind_onshore_actual_aggregated_de, ~lag(., 24)),
+    across(wind_onshore_actual_aggregated_fr, ~lag(., 24)),
+    across(wind_onshore_actual_aggregated_it, ~lag(., 24)),
+    across(wind_onshore_ch, ~lag(., 24)),
   )
+
+# Check if only 24 missing values are present
+df_scenario_a |> 
+  is.na() |> 
+  colSums() |> 
+  enframe() |> 
+  filter(value > 0) |> 
+  arrange(-value) |> 
+  count(value)
 
 df_scenario_a |> write_csv("0_df_final_imputed_shifting_a.csv")
 ```
@@ -522,160 +621,375 @@ df_scenario_b |> write_csv("0_df_final_imputed_shifting_b.csv")
 df_scenario_c = df |> 
   mutate(
     across(
-      contains("actual_load"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      actual_load_at, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("biomass_actual_aggregated"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      actual_load_ch, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("capacity_forecast"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      actual_load_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("crossborder_actual_flow"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      actual_load_fr, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("fossil_brown_coal_lignite_actual_aggregated"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      actual_load_fr_missing_dummy, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("fossil_coal.derived_gas_actual_aggregated"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      actual_load_it, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("fossil_gas_actual_aggregated"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      biomass_actual_aggregated_at, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("fossil_hard_coal_actual_aggregated"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      biomass_actual_aggregated_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("fossil_oil_actual_aggregated"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      biomass_actual_aggregated_fr, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("geothermal_actual_aggregated"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      biomass_actual_aggregated_it, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("hydro_pumped_storage"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      crossborder_actual_flow_at_ch, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("hydro_pumped_storage_actual_aggregated"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      crossborder_actual_flow_ch_at, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("hydro_pumped_storage_actual_consumption"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      crossborder_actual_flow_ch_de_lu, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("hydro_reservoir_storage"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      crossborder_actual_flow_ch_fr, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("hydro_run.of.river_and_poundage"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      crossborder_actual_flow_ch_it, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("hydro_run.of.river_and_poundage_actual_aggregated"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      crossborder_actual_flow_de_lu_ch, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("hydro_water_reservoir"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      crossborder_actual_flow_fr_ch, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("hydro_water_reservoir_actual_aggregated"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      crossborder_actual_flow_it_ch, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("nuclear"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      fossil_brown_coal_lignite_actual_aggregated_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("nuclear_actual_aggregated"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      `fossil_coal-derived_gas_actual_aggregated_it`, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("other_actual_aggregated"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      `fossil_coal-derived_gas_actual_aggregated_it_missing_dummy`, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("other_renewable_actual_aggregated"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      fossil_gas_actual_aggregated_at, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("solar"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      fossil_gas_actual_aggregated_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("solar_actual_aggregated"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      fossil_gas_actual_aggregated_fr, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("solar_forecast"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      fossil_gas_actual_aggregated_it, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("waste_actual_aggregated"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      fossil_hard_coal_actual_aggregated_at, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("wind_offshore_actual_aggregated"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      fossil_hard_coal_actual_aggregated_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("wind_onshore"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      fossil_hard_coal_actual_aggregated_fr, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("wind_onshore_actual_aggregated"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
+      fossil_hard_coal_actual_aggregated_fr_missing_dummy, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
     across(
-      contains("wind_onshore_forecast"), 
-      ~ lag(., n = 24), 
-      .names = "{.col}_lag_24"
-    ),
-    g1_dummy_lag_24 = lag(g1_dummy, n = 24),
-    g2_dummy_lag_24 = lag(g2_dummy, n = 24),
-    g3_dummy_lag_24 = lag(g3_dummy, n = 24),
+      fossil_hard_coal_actual_aggregated_it, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      fossil_oil_actual_aggregated_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      fossil_oil_actual_aggregated_fr, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      fossil_oil_actual_aggregated_it, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      fossil_oil_actual_aggregated_it_missing_dummy, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      g1_dummy, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      g2_dummy, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      g3_dummy, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      geothermal_actual_aggregated_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      geothermal_actual_aggregated_it, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      hydro_pumped_storage_actual_aggregated_at, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      hydro_pumped_storage_actual_aggregated_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      hydro_pumped_storage_actual_aggregated_fr, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      hydro_pumped_storage_actual_aggregated_it, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      hydro_pumped_storage_actual_aggregated_it_missing_dummy, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      hydro_pumped_storage_actual_consumption_at, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      hydro_pumped_storage_actual_consumption_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      hydro_pumped_storage_actual_consumption_fr, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      hydro_pumped_storage_actual_consumption_it, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      hydro_pumped_storage_actual_consumption_it_missing_dummy, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      hydro_pumped_storage_ch, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      hydro_reservoir_storage_at, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      hydro_reservoir_storage_ch, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      hydro_reservoir_storage_fr, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      hydro_reservoir_storage_fr_missing_dummy, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      hydro_reservoir_storage_it, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      hydro_reservoir_storage_it_missing_dummy, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      `hydro_run-of-river_and_poundage_actual_aggregated_at`, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      `hydro_run-of-river_and_poundage_actual_aggregated_de`, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      `hydro_run-of-river_and_poundage_actual_aggregated_fr`, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      `hydro_run-of-river_and_poundage_actual_aggregated_it`, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      `hydro_run-of-river_and_poundage_ch`, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      hydro_water_reservoir_actual_aggregated_at, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      hydro_water_reservoir_actual_aggregated_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      hydro_water_reservoir_actual_aggregated_fr, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      hydro_water_reservoir_actual_aggregated_fr_missing_dummy, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      hydro_water_reservoir_actual_aggregated_it, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      hydro_water_reservoir_actual_aggregated_it_missing_dummy, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      hydro_water_reservoir_ch, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      nuclear_actual_aggregated_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      nuclear_actual_aggregated_de_missing_dummy, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      nuclear_actual_aggregated_fr, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      nuclear_ch, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      other_actual_aggregated_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      other_actual_aggregated_it, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      other_actual_aggregated_it_missing_dummy, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      other_renewable_actual_aggregated_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      solar_actual_aggregated_at, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      solar_actual_aggregated_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      solar_actual_aggregated_fr, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      solar_actual_aggregated_it, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      solar_ch, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      waste_actual_aggregated_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      waste_actual_aggregated_fr, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      waste_actual_aggregated_it, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      wind_offshore_actual_aggregated_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      wind_onshore_actual_aggregated_at, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      wind_onshore_actual_aggregated_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      wind_onshore_actual_aggregated_fr, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      wind_onshore_actual_aggregated_it, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      wind_onshore_ch, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
   )
+
+# Check if only 24 missing values are present
+df_scenario_c |> 
+  is.na() |> 
+  colSums() |> 
+  enframe() |> 
+  filter(value > 0) |> 
+  arrange(-value) |> 
+  count(value)
 
 df_scenario_c |> write_csv("0_df_final_imputed_shifting_c.csv")
 ```
-

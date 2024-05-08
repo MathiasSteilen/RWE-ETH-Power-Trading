@@ -1,0 +1,845 @@
+---
+title: "Extra_models GERMAN"
+author: "Federico Deotto"
+date: "2024-04-29"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(lubridate)
+library(ggsci)
+library(scales)
+library(shiny)
+library(ncvreg)
+
+library(fastTS)
+library(xts)
+
+
+source('builtin_functions.R')
+
+
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Default theme for charts
+theme_set(
+  theme_bw() +
+    theme(  
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(
+        face = "italic", size = 10, colour = "green50"
+      )
+    )
+)
+
+```
+
+
+
+# GERMAN PRICE
+
+
+```{r}
+df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_a.csv") %>% 
+  mutate(
+    across(day_ahead_price_at, ~lag(., 24)),
+    across(day_ahead_price_ch, ~lag(., 24)),
+    across(day_ahead_price_fr, ~lag(., 24)),
+    across(day_ahead_price_it, ~lag(., 24)),
+    across(auction_price_ch_de, ~lag(., 24)),
+    across(auction_price_de_ch, ~lag(., 24)),
+    across(allocatedCapacity_ch_de, ~lag(., 24)),
+    across(allocatedCapacity_de_ch, ~lag(., 24))) %>% 
+  arrange(date) %>% 
+  slice(25:n())
+
+
+```
+
+Convert dummies for missing values and variable dst into factor, and ensure that all numeric colums are encoded as such.
+```{r}
+df <- df %>% 
+  mutate(date = with_tz(date, tzone = "UTC")) %>% 
+  mutate_at(vars(-date), as.numeric)
+  
+dummies_columns <- df %>%
+  select(contains(c("_dummy", "cal_"))) %>% 
+  colnames()
+
+factor_colums <- c('dst', dummies_columns)
+
+df <- df %>%
+  mutate_at(vars(factor_colums), factor)
+
+first_cut <- as.POSIXct("2021-06-30 23:00:00", tz = "UTC")
+second_cut <- as.POSIXct("2022-12-31 23:00:00", tz = "UTC")
+
+x <- df %>%
+  select(contains(c('cal_', 'dst')))
+
+
+formula_str <- paste("~ dst +",
+                     paste(names(x)[-which(names(x) == "dst")], " * dst", sep = "", collapse = " + "), sep = "")
+formula_str <- formula(formula_str)
+
+x <- model.matrix(formula_str, data = x) %>% as_tibble() %>% select(-contains("Intercept")) %>% 
+  mutate_all(., as.factor)
+
+cond <- x %>%
+  mutate_all(as.numeric) %>% 
+  apply(., 2, function(x) all(x == 1))
+
+omit_names <- colnames(x)[cond]
+
+x <- x %>% 
+  select(-omit_names)
+
+df <- df %>% 
+  select(-contains(c('cal_', 'dst'))) %>% 
+  bind_cols(., x)
+
+rm(x)
+
+discontinue_variables <- df %>% 
+  select(where(is.numeric)) %>% 
+  slice(1700:1900) %>%     #easy for compuattion to subset
+  detect_columns_with_consecutive(n_consecutive = 13) %>%
+  select(-c(allocatedCapacity_ch_de, allocatedCapacity_de_ch)) %>% 
+  select(-contains('forecast')) %>% 
+  names()
+
+df <- df %>%
+  mutate(across(all_of(discontinue_variables), ~ ksmooth_column(., band = 3)))
+
+flo = df %>% 
+  select(day_ahead_price_de) %>% 
+  min()
+
+df <- df %>%
+   mutate_at(vars(all_of('day_ahead_price_de')), ~ boxcox_transform(., lambda = 0))
+
+df %>% 
+  nrow()
+
+lag_1 = 24*30*6  # six month
+
+df  %>% 
+  filter(date < first_cut) %>% 
+  nrow() 
+
+lag_2 = 24*3*30 # three month
+
+
+df  %>% 
+  filter(date > first_cut & date < second_cut) %>% 
+  nrow() 
+
+lag_3 =24*2*30 #  two month
+
+
+df  %>% 
+  filter(date > second_cut) %>% 
+  nrow()
+
+lag_4 =24*1.5*30 # 1.5 month
+```
+
+
+```{r}
+df <- df %>% 
+  mutate(across(
+      day_ahead_price_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24")) %>%
+  mutate(day_ahead_price_de_lag_24_squared = day_ahead_price_de_lag_24^2) %>%
+  mutate(across(
+      day_ahead_price_de, 
+      ~lag(., 48),
+      .names = "{.col}_lag_48")) %>%
+  mutate(day_ahead_price_de_lag_48_squared = day_ahead_price_de_lag_48^2) %>%
+  mutate(day_ahead_price_de_squared_difference = (day_ahead_price_de_lag_24 - day_ahead_price_de_lag_48)^2) %>% 
+  mutate(across(
+      day_ahead_price_de, 
+      ~lag(., 25),
+      .names = "{.col}_lag_25")) %>%
+  mutate(day_ahead_price_de_lag_24_25_dif_squared = (day_ahead_price_de_lag_24 - day_ahead_price_de_lag_25)^2 ) %>%
+  select(-c('day_ahead_price_de_lag_24', 'day_ahead_price_de_lag_48'))
+```
+
+
+
+
+```{r}
+cond <- df %>%
+  filter(date > second_cut) %>%
+  select(-c(date, day_ahead_price_de)) %>%
+  mutate_all(as.numeric) %>%
+  apply(2, function(x) all(x == 1))
+
+columns_to_remove <- names(cond)[cond]
+print(columns_to_remove)
+
+
+mod_extra_4_de <- df  %>% 
+  select(-any_of(columns_to_remove)) %>%
+  filter(date > second_cut) %>% 
+  model_list(nlag = lag_4) 
+```
+
+
+
+
+```{r}
+read_coef(mod_extra_4_de) %>% View()
+model <- mod_extra_4_de$fits[[1]]  
+sum_stat <- model_selected(mod_extra_4_de, model, p.train = 0.8)
+```
+
+
+
+
+
+THE VARIABLE INTRODUCE ARE USELESS.
+
+
+Try dummies
+
+#Dummise for extreme in third period
+```{r}
+min_date <- df %>%
+  filter(date > second_cut) %>%
+  arrange(day_ahead_price_de) %>%
+  slice_head(n = 27*3) %>% 
+  select(date, day_ahead_price_de) %>% 
+  group_by(date) %>%
+  summarize(min_price = min(day_ahead_price_de)) %>% 
+  arrange(min_price) %>% 
+  slice(1:24) %>% 
+  pull(date)
+
+min_date[1]
+```
+
+```{r}
+pos <- which(df$date %in% min_date[1])
+pos <- c(pos-1, pos+1) 
+
+df %>% 
+  slice(pos[1] : pos[2]) %>% 
+  ggplot(aes(x = date)) +
+  geom_line(aes(y = day_ahead_price_de))
+
+# Get the extreme values within the range
+extreme_values <- df %>%
+  slice((pos[1]-24) : (pos[2]-24)) %>%
+  pull(day_ahead_price_de)
+
+# Calculate the mean of the extreme values
+mean_extreme_values <- mean(extreme_values)
+
+```
+
+
+```{r}
+# Create dummy columns for each date in 'att'
+df2 <- df
+for(date_val in min_date) {
+  df2 <- df2 %>%
+    mutate(!!paste0("dummy_", date_val) := as.integer(date == date_val))
+}
+
+
+mod_extra_4_de <- df2  %>% 
+  select(-any_of(columns_to_remove)) %>%
+  filter(date > second_cut) %>% 
+  model_list(nlag = lag_4)
+
+
+read_coef(mod_extra_4_de) %>% View()
+model <- mod_extra_4_de$fits[[1]]  
+sum_stat <- model_selected(mod_extra_4_de, model, p.train = 0.8)
+rm(df2)
+```
+
+
+
+
+This is lag1 coefficient.
+```{r}
+plot(mod_extra_4_de)
+```
+
+```{r}
+summary(mod_extra_4_de)$table %>% select(Estimate) %>% arrange(desc(Estimate))
+```
+
+
+```{r}
+mod_extra_4_de <- df  %>% 
+  mutate(day_ahead_price_de = if_else(row_number() >= pos[1] & row_number() <= pos[2], mean_extreme_values, day_ahead_price_de)) %>% 
+  select(-any_of(columns_to_remove)) %>%
+  filter(date > second_cut) %>% 
+  model_list(nlag = lag_4)
+
+
+read_coef(mod_extra_4_de) %>% View()
+model <- mod_extra_4_de$fits[[1]]  
+sum_stat <- model_selected(mod_extra_4_de, model, p.train = 0.8)
+```
+
+
+
+Since I'veb notice that is claer the presence ofsome spike in the time series I will inspect bettter the distribution of the adata.
+
+```{r}
+df %>% 
+  filter(date > second_cut) %>% 
+  mutate(abs_response = abs(day_ahead_price_de)) %>% 
+  select(abs_response) %>% 
+  boxplot()
+
+df %>% 
+  filter(date > second_cut) %>% 
+  mutate(abs_response = abs(day_ahead_price_de)) %>% 
+  ggplot(aes(x = date, y = abs_response))+
+  geom_line()
+
+
+sum_stat$sol %>% 
+  mutate(abs_difference = abs(difference)) %>% 
+  select(abs_difference) %>% 
+  boxplot()
+
+
+sum_stat$sol %>% 
+  mutate(abs_difference = abs(difference)) %>% 
+  select(abs_difference) %>% 
+  summary()
+
+
+sum_stat$sol %>% 
+  mutate(abs_difference = abs(difference)) %>% 
+  filter(abs_difference > 0.1) %>% 
+  ggplot(aes(x = date, y = abs_difference))+
+  geom_point()
+
+date_abs <- sum_stat$sol %>% 
+  mutate(abs_difference = abs(difference)) %>% 
+  filter(abs_difference > 0.1) %>% 
+  pull(date)
+
+
+
+date_abs %>% 
+  sort() %>% 
+  month()
+```
+```{r}
+mod_extra_4_de <- df %>% 
+  mutate(day_ahead_price_de = if_else(row_number() >= pos[1] & row_number() <= pos[2], mean_extreme_values, day_ahead_price_de)) %>% 
+  mutate(across(
+      day_ahead_price_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24")) %>%
+  mutate(day_ahead_price_de_lag_24_squared = day_ahead_price_de_lag_24^2) %>%
+  mutate(across(
+      day_ahead_price_de, 
+      ~lag(., 744),
+      .names = "{.col}_lag_744")) %>%
+  mutate(day_ahead_price_de_squared_difference_month = (day_ahead_price_de_lag_24 - day_ahead_price_de_lag_744)^2) %>% 
+select(-c('day_ahead_price_de_lag_24', 'day_ahead_price_de_lag_744')) %>% 
+  select(-any_of(columns_to_remove)) %>%
+  filter(date > second_cut) %>% 
+  model_list(nlag = lag_4)
+
+
+read_coef(mod_extra_4_de) %>% View()
+model <- mod_extra_4_de$fits[[1]]  
+sum_stat <- model_selected(mod_extra_4_de, model, p.train = 0.8)
+```
+
+
+```{r}
+pos = which(df$date == second_cut) -1000
+# Generate lagged columns from lag 24 to lag 100
+lagged_columns <- lapply(24:168, function(i) {
+  lag_column_name <- paste0("lag_squared", i)
+  df %>%
+    slice(pos:n()) %>%
+    mutate(!!lag_column_name := lag(day_ahead_price_de, i)^2) %>% 
+    select(!!lag_column_name, date) %>% 
+    return()
+})
+
+# Bind the lagged columns together
+df_lagged <- data.frame(lagged_columns) %>% 
+  select(-contains('date.'))
+rm(lagged_columns)
+
+
+pos <- which(df$date %in% min_date[1])
+pos <- c(pos-1, pos-2)
+
+temp <- df %>% 
+  mutate(day_ahead_price_de = if_else(row_number() >= pos[1] & row_number() <= pos[2], mean_extreme_values, day_ahead_price_de)) %>% 
+  slice(pos:n()) %>%
+  merge(df_lagged, by = 'date') %>% 
+  filter(date > second_cut)
+
+
+cond <- temp %>%
+  select(-c(date, day_ahead_price_de)) %>%
+  mutate_all(as.numeric) %>%
+  apply(2, function(x) all(x == 1))
+
+columns_to_remove <- names(cond)[cond]
+print(columns_to_remove)
+
+
+mod_extra_4_de <- temp %>% 
+  select(-any_of(columns_to_remove)) %>%
+  model_list(nlag = lag_4)
+
+
+read_coef(mod_extra_4_de) %>% View()
+model <- mod_extra_4_de$fits[[1]]  
+sum_stat <- model_selected(mod_extra_4_de, model, p.train = 0.8)
+```
+
+
+
+
+
+
+
+
+
+# SWISS PRICE
+
+
+```{r}
+df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_a.csv") %>% 
+  mutate(
+    across(day_ahead_price_at, ~lag(., 24)),
+    across(day_ahead_price_de, ~lag(., 24)),
+    across(day_ahead_price_fr, ~lag(., 24)),
+    across(day_ahead_price_it, ~lag(., 24)),
+    across(auction_price_ch_de, ~lag(., 24)),
+    across(auction_price_de_ch, ~lag(., 24)),
+    across(allocatedCapacity_ch_de, ~lag(., 24)),
+    across(allocatedCapacity_de_ch, ~lag(., 24))) %>% 
+  arrange(date) %>% 
+  slice(25:n())
+```
+
+Convert dummies for missing values and variable dst into factor, and ensure that all numeric colums are encoded as such.
+```{r}
+df <- df %>% 
+  mutate(date = with_tz(date, tzone = "UTC")) %>% 
+  mutate_at(vars(-date), as.numeric)
+  
+dummies_columns <- df %>%
+  select(contains(c("_dummy", "cal_"))) %>% 
+  colnames()
+
+factor_colums <- c('dst', dummies_columns)
+
+df <- df %>%
+  mutate_at(vars(factor_colums), factor)
+
+first_cut <- as.POSIXct("2021-06-30 23:00:00", tz = "UTC")
+second_cut <- as.POSIXct("2022-12-31 23:00:00", tz = "UTC")
+
+x <- df %>%
+  select(contains(c('cal_', 'dst')))
+
+
+formula_str <- paste("~ dst +",
+                     paste(names(x)[-which(names(x) == "dst")], " * dst", sep = "", collapse = " + "), sep = "")
+formula_str <- formula(formula_str)
+
+x <- model.matrix(formula_str, data = x) %>% as_tibble() %>% select(-contains("Intercept")) %>% 
+  mutate_all(., as.factor)
+
+cond <- x %>%
+  mutate_all(as.numeric) %>% 
+  apply(., 2, function(x) all(x == 1))
+
+omit_names <- colnames(x)[cond]
+
+x <- x %>% 
+  select(-omit_names)
+
+df <- df %>% 
+  select(-contains(c('cal_', 'dst'))) %>% 
+  bind_cols(., x)
+
+rm(x)
+
+discontinue_variables <- df %>% 
+  select(where(is.numeric)) %>% 
+  slice(1700:1900) %>%     #easy for compuattion to subset
+  detect_columns_with_consecutive(n_consecutive = 13) %>%
+  select(-c(allocatedCapacity_ch_de, allocatedCapacity_de_ch)) %>% 
+  select(-contains('forecast')) %>% 
+  names()
+
+df <- df %>%
+  mutate(across(all_of(discontinue_variables), ~ ksmooth_column(., band = 3)))
+
+flo = df %>% 
+  select(day_ahead_price_ch) %>% 
+  min()
+df <- df %>%
+   mutate_at(vars(all_of('day_ahead_price_ch')), ~ boxcox_transform(., lambda = 0))
+
+df %>% 
+  nrow()
+
+lag_1 = 24*30*6  # six month
+
+df  %>% 
+  filter(date < first_cut) %>% 
+  nrow() 
+
+lag_2 = 24*3*30 # three month
+
+
+df  %>% 
+  filter(date > first_cut & date < second_cut) %>% 
+  nrow() 
+
+lag_3 =24*2*30 #  two month
+
+
+df  %>% 
+  filter(date > second_cut) %>% 
+  nrow()
+
+lag_4 =24*1.5*30 # 1.5 month
+```
+
+```{r}
+#You can open fastTS to include extra term using get_model_matrix_internal from
+#github fasTS
+```
+
+Introduce the squared difference previous days
+```{r}
+df <- df %>% 
+  mutate(across(
+      day_ahead_price_ch, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24")) %>%
+  mutate(across(
+      day_ahead_price_ch, 
+      ~lag(., 48),
+      .names = "{.col}_lag_48")) %>%
+  mutate(day_ahead_price_de_squared_difference = (day_ahead_price_ch_lag_24 - day_ahead_price_ch_lag_48)^2) %>% 
+  select(-c('day_ahead_price_ch_lag_24', 'day_ahead_price_ch_lag_48'))
+```
+
+#Dummise for extreme in third period
+```{r}
+min_date <- df %>%
+  filter(date > second_cut) %>%
+  arrange(day_ahead_price_ch) %>%
+  slice_head(n = 27*3) %>% 
+  select(date, day_ahead_price_ch) %>% 
+  mutate(date = substr(format(date, "%Y-%m-%d %H:%M:%S"), 1, 10)) %>% 
+  group_by(date) %>%
+  summarize(min_price = min(day_ahead_price_ch)) %>% 
+  arrange(min_price) %>% 
+  slice(1:3) %>% 
+  pull(date) 
+  
+dates <- df %>%
+  filter(date > second_cut) %>%
+  select(date) %>% 
+  mutate(date = substr(format(date, "%Y-%m-%d %H:%M:%S"), 1, 10)) %>% 
+  pull(date)
+
+dummy_min_1 <- (dates %in% min_date[1]) %>% as.numeric()
+dummy_min_2 <- (dates %in% min_date[2]) %>% as.numeric()
+dummy_min_3 <- (dates %in% min_date[3]) %>% as.numeric()
+
+
+
+max_date <- df %>%
+  filter(date > second_cut) %>%
+  arrange(desc(day_ahead_price_ch)) %>%
+  slice_head(n = 27*3) %>% 
+  select(date, day_ahead_price_ch) %>% 
+  mutate(date = substr(format(date, "%Y-%m-%d %H:%M:%S"), 1, 10)) %>% 
+  group_by(date) %>%
+  summarize(max_price = max(day_ahead_price_ch)) %>% 
+  arrange(desc(max_price)) %>% 
+  slice(1:3) %>% 
+  pull(date)
+
+dummy_max_1 <- (dates %in% max_date[1]) %>% as.numeric() 
+dummy_max_2 <- (dates %in% max_date[2]) %>% as.numeric() 
+dummy_max_3 <- (dates %in% max_date[3]) %>% as.numeric() 
+```
+
+```{r}
+cond <- df %>%
+  filter(date > second_cut) %>%
+  select(-c(date, day_ahead_price_ch)) %>%
+  mutate_all(as.numeric) %>%
+  apply(2, function(x) all(x == 1))
+
+columns_to_remove <- names(cond)[cond]
+print(columns_to_remove)
+
+mod_extra_4_ch <- df %>% 
+  select(-any_of(columns_to_remove)) %>%
+  filter(date > second_cut) %>% 
+  mutate(max_dummy1 = dummy_max_1) %>% 
+  mutate(max_dummy2 = dummy_max_2) %>% 
+  mutate(max_dummy3 = dummy_max_3) %>% 
+  mutate(min_dummy1 = dummy_min_1) %>% 
+  mutate(min_dummy2 = dummy_min_2) %>% 
+  mutate(min_dummy3 = dummy_min_3) %>% 
+  model_list(nlag = lag_4, response = 'day_ahead_price_ch')
+```
+
+(I've also tried with the response squared but then remove it since the model is meant to be predictive)
+The new squared term it is not significant.
+```{r}
+summary(mod_extra_4_ch)
+```
+
+```{r}
+read_coef(mod_extra_4_ch) %>% View()
+model <- mod_extra_4_ch$fits[[1]]  
+sum_stat <- model_selected(mod_extra_4_ch, model, p.train = 0.8)
+```
+
+
+See in original scale !!!!!!!!!!
+```{r}
+val <- sum_stat$sol
+
+val <- val %>% 
+  mutate(response_undo = undo_boxcox_transform(response, lambda = 0, flo)) %>% 
+  mutate(fitted_response_undo = undo_boxcox_transform(fitted_response, lambda = 0, flo))
+
+
+val %>% 
+  ggplot(aes(x = date)) +
+    geom_line(aes(y = fitted_response_undo, col = 'Fitted')) +
+    geom_line(aes(y = response_undo, col = 'Actual')) +
+    scale_x_datetime(date_labels = "%Y-%m") +
+    scale_y_continuous(limits = c(0, max(val$fitted_response_undo)))+
+    labs(title = "Prices and Fitted fastTS",
+         x = "Hourly data",
+         y = "Price",
+         color = "Day ahead prices") +
+    scale_color_manual(values = c("Actual" = "grey", "Fitted" = "orange")) +
+    theme(plot.margin = margin(10, 10, 10, 10), legend.position = "bottom")
+  
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# CH_DE THIRD PERIOD
+```{r}
+df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_a.csv") %>% 
+  mutate(
+    across(day_ahead_price_at, ~lag(., 24)),
+    across(day_ahead_price_de, ~lag(., 24)),
+    across(day_ahead_price_fr, ~lag(., 24)),
+    across(day_ahead_price_it, ~lag(., 24)),
+    across(day_ahead_price_ch, ~lag(., 24)),
+    across(auction_price_de_ch, ~lag(., 24)),
+    across(allocatedCapacity_ch_de, ~lag(., 24)),
+    across(allocatedCapacity_de_ch, ~lag(., 24))) %>% 
+  arrange(date) %>% 
+  slice(25:n())
+```
+
+
+
+Convert dummies for missing values and variable dst into factor, and ensure that all numeric colums are encoded as such.
+```{r}
+df <- df %>% 
+  mutate(date = with_tz(date, tzone = "UTC"))
+
+df <- df %>%
+  mutate_at(vars(-date), as.numeric)
+
+dummies_columns <- df %>%
+  select(contains(c("_dummy", "cal_"))) %>% 
+  colnames()
+
+factor_colums <- c('dst', dummies_columns)
+
+df <- df %>%
+  mutate_at(vars(factor_colums), factor)
+```
+
+
+```{r}
+x <- df %>%
+  select(contains(c('cal_', 'dst')))
+
+
+formula_str <- paste("~ dst +",
+                     paste(names(x)[-which(names(x) == "dst")], " * dst", sep = "", collapse = " + "), sep = "")
+formula_str <- formula(formula_str)
+
+x <- model.matrix(formula_str, data = x) %>% as_tibble() %>% select(-contains("Intercept")) %>% 
+  mutate_all(., as.factor)
+
+cond <- x %>%
+  mutate_all(as.numeric) %>% 
+  apply(., 2, function(x) all(x == 1))
+
+omit_names <- colnames(x)[cond]
+
+x <- x %>% 
+  select(-omit_names)
+
+df <- df %>% 
+  select(-contains(c('cal_', 'dst'))) %>% 
+  bind_cols(., x)
+```
+
+```{r}
+rm(x)
+```
+
+
+There are some variables that present constant values along the day or week. We decided to use a smoothing function to smooth these values.
+```{r}
+discontinue_variables <- df %>% 
+  select(where(is.numeric)) %>% 
+  slice(1700:1900) %>%     #easy for compuattion to subset
+  detect_columns_with_consecutive(n_consecutive = 13) %>%
+  select(-c(allocatedCapacity_ch_de, allocatedCapacity_de_ch)) %>% 
+  select(-contains('forecast')) %>% 
+  names()
+
+
+df <- df %>%
+  mutate(across(all_of(discontinue_variables), ~ ksmooth_column(., band = 3)))
+```
+
+# Transformation response
+
+We will consider the transfromed version of the response.
+```{r}
+flo = min(df$auction_price_ch_de)
+df <- df %>%
+   mutate_at(vars(all_of('auction_price_ch_de')), ~ boxcox_transform(., lambda = -1.5))
+```
+
+```{r}
+df %>% 
+  nrow()
+
+lag_1 = 24*30*6  # six month
+
+df  %>% 
+  filter(date < first_cut) %>% 
+  nrow() 
+
+lag_2 = 24*3*30 # three month
+
+
+df  %>% 
+  filter(date > first_cut & date < second_cut) %>% 
+  nrow() 
+
+lag_3 =24*2*30 #  two month
+
+
+df  %>% 
+  filter(date > second_cut) %>% 
+  nrow()
+
+lag_4 =24*1.5*30 # 1.5 month
+```
+
+Introduce the squared difference previous days
+```{r}
+df <- df %>% 
+  mutate(across(
+      auction_price_ch_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24")) %>%
+  mutate(across(
+      auction_price_ch_de, 
+      ~lag(., 25),
+      .names = "{.col}_lag_48")) %>%
+  mutate(auction_price_ch_de_squared_difference = (auction_price_ch_de_lag_24 - auction_price_ch_de_lag_48)^2) %>% 
+  select(-c('auction_price_ch_de_lag_24', 'auction_price_ch_de_lag_48'))
+```
+
+
+
+
+
+```{r}
+cond <- df %>%
+  filter(date > second_cut) %>%
+  select(-c(date, auction_price_ch_de)) %>%
+  mutate_all(as.numeric) %>%
+  apply(2, function(x) all(x == 1))
+
+columns_to_remove <- names(cond)[cond]
+print(columns_to_remove)
+
+mod_extra_4_ch_de <- df  %>% 
+  select(-any_of(columns_to_remove)) %>%
+  filter(date > second_cut) %>% 
+  model_list(nlag = lag_4, response = 'auction_price_ch_de') 
+```
+
+
+
+
+```{r}
+read_coef(mod_extra_4_ch_de) %>% View()
+model <- mod_extra_4_ch_de$fits[[1]]  
+sum_stat <- model_selected(mod_extra_4_ch_de, model, p.train = 0.8)
+
+```
+```{r}
+
+dum_neg <- df %>% 
+  select(date, auction_price_ch_de) %>% 
+  filter(date > second_cut) %>% 
+  pull(auction_price_ch_de)
+
+dum_neg <- dum_neg <0 %>% as.numeric()
+
+
+mod_extra_4_ch_de <- df  %>% 
+  select(-any_of(columns_to_remove)) %>%
+  filter(date > second_cut) %>% 
+  mutate(dum_neg = dum_neg) %>% 
+  model_list(nlag = lag_4, response = 'auction_price_ch_de')
+
+
+read_coef(mod_extra_4_ch_de) %>% View()
+model <- mod_extra_4_ch_de$fits[[1]]  
+sum_stat <- model_selected(mod_extra_4_ch_de, model, p.train = 0.8)
+```
+

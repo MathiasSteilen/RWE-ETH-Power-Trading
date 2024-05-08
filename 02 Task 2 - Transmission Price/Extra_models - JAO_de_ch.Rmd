@@ -1,0 +1,229 @@
+---
+title: "Extreme_models JAO_de_ch"
+author: "Federico Deotto"
+date: "2024-04-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(lubridate)
+library(ggsci)
+library(scales)
+library(shiny)
+library(ncvreg)
+
+library(fastTS)
+library(xts)
+
+
+source('builtin_functions.R')
+
+
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Default theme for charts
+theme_set(
+  theme_bw() +
+    theme(  
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(
+        face = "italic", size = 10, colour = "green50"
+      )
+    )
+)
+
+```
+
+# JAO _DE_CH
+
+```{r}
+df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_a.csv") %>% 
+  mutate(
+    across(day_ahead_price_at, ~lag(., 24)),
+    across(day_ahead_price_de, ~lag(., 24)),
+    across(day_ahead_price_fr, ~lag(., 24)),
+    across(day_ahead_price_it, ~lag(., 24)),
+    across(day_ahead_price_ch, ~lag(., 24)),
+    across(auction_price_ch_de, ~lag(., 24)),
+    across(allocatedCapacity_ch_de, ~lag(., 24)),
+    across(allocatedCapacity_de_ch, ~lag(., 24))) %>% 
+  arrange(date) %>% 
+  slice(25:n()) %>% 
+  mutate(date = with_tz(date, tzone = "UTC")) %>% 
+  mutate_at(vars(-date), as.numeric)
+
+dummies_columns <- df %>%
+  select(contains(c("_dummy", "cal_"))) %>% 
+  colnames()
+
+factor_colums <- c('dst', dummies_columns)
+
+df <- df %>%
+  mutate_at(vars(factor_colums), factor)
+
+first_cut <- as.POSIXct("2021-06-30 23:00:00", tz = "UTC")
+second_cut <- as.POSIXct("2022-12-31 23:00:00", tz = "UTC")
+
+x <- df %>%
+  select(contains(c('cal_', 'dst')))
+
+
+formula_str <- paste("~ dst +",
+                     paste(names(x)[-which(names(x) == "dst")], " * dst", sep = "", collapse = " + "), sep = "")
+formula_str <- formula(formula_str)
+
+x <- model.matrix(formula_str, data = x) %>% as_tibble() %>% select(-contains("Intercept")) %>% 
+  mutate_all(., as.factor)
+
+cond <- x %>%
+  mutate_all(as.numeric) %>% 
+  apply(., 2, function(x) all(x == 1))
+
+omit_names <- colnames(x)[cond]
+
+x <- x %>% 
+  select(-omit_names)
+
+df <- df %>% 
+  select(-contains(c('cal_', 'dst'))) %>% 
+  bind_cols(., x)
+
+rm(x)
+
+discontinue_variables <- df %>% 
+  select(where(is.numeric)) %>% 
+  slice(1700:1900) %>%     #easy for compuattion to subset
+  detect_columns_with_consecutive(n_consecutive = 13) %>%
+  select(-c(allocatedCapacity_ch_de, allocatedCapacity_de_ch)) %>% 
+  select(-contains('forecast')) %>% 
+  names()
+
+
+df <- df %>%
+  mutate(across(all_of(discontinue_variables), ~ ksmooth_column(., band = 3)))
+
+df <- df %>%
+   mutate_at(vars(all_of('auction_price_de_ch')), ~ boxcox_transform(., lambda = -1.5))
+
+df %>% 
+  nrow()
+
+lag_1 = 24*30*6  # six month
+
+df  %>% 
+  filter(date < first_cut) %>% 
+  nrow() 
+
+lag_2 = 24*3*30 # three month
+
+
+df  %>% 
+  filter(date > first_cut & date < second_cut) %>% 
+  nrow() 
+
+lag_3 =24*2*30 #  two month
+
+
+df  %>% 
+  filter(date > second_cut) %>% 
+  nrow()
+
+lag_4 =24*1.5*30 # 1.5 month
+```
+# CEILING
+
+```{r}
+ceiling <- df %>% 
+  filter(date > second_cut) %>% 
+  select(auction_price_de_ch) %>% 
+  max()
+
+
+
+df %>% 
+  filter(date > second_cut) %>% 
+  ggplot(aes(x = date))+
+  geom_line(aes(y = auction_price_de_ch))
+
+df %>% 
+  filter(date > second_cut) %>% 
+  select(auction_price_de_ch) %>% 
+  summary()
+
+df %>% 
+  filter(date > second_cut) %>% 
+  select(auction_price_de_ch) %>% 
+  boxplot()
+
+df %>% 
+  filter(date > second_cut) %>% 
+  select(auction_price_de_ch) %>% 
+  filter(auction_price_de_ch > .65) %>% 
+  boxplot()
+
+df %>% 
+  filter(date > second_cut) %>% 
+  select(auction_price_de_ch) %>% 
+  filter(auction_price_de_ch > .65) %>% 
+  nrow()
+```
+
+```{r}
+df <- df %>%
+  filter(date > second_cut) %>% 
+  mutate(dummy_ceiling = auction_price_de_ch <= boxcox_transform(0, lambda = -1.5)) %>% 
+  mutate(dummy_ceiling = as.numeric(dummy_ceiling))
+```
+
+
+```{r}
+cond <- df %>%
+  filter(date > second_cut) %>%
+  select(-c(date, auction_price_de_ch)) %>%
+  mutate_all(as.numeric) %>%
+  apply(2, function(x) all(x == 1))
+
+columns_to_remove <- names(cond)[cond]
+print(columns_to_remove)
+
+mod_extra <- df  %>% 
+  select(-any_of(columns_to_remove)) %>%
+  filter(date > second_cut) %>% 
+  model_list(nlag = lag_4, response = 'auction_price_de_ch') 
+
+read_coef(mod_extra) %>% View()
+model <- mod_extra$fits[[1]]  
+sum_stat <- model_selected(mod_extra, model, p.train = 0.8)
+```
+
+```{r}
+cond = sum_stat$sol$difference <= boxcox_transform(0, lambda = -1.5)
+
+sum_stat$sol %>% 
+  filter(!cond) %>% 
+  pull(difference) %>% 
+  qqnorm()
+
+sum_stat$sol %>% 
+  filter(!cond) %>% 
+  pull(difference) %>% 
+  qqline()
+
+
+sum_stat$sol %>% 
+  filter(cond) %>% 
+  pull(difference) %>% 
+  qqnorm()
+
+sum_stat$sol %>% 
+  filter(cond) %>% 
+  pull(difference) %>% 
+  qqline()
+```
+
+
+
+
