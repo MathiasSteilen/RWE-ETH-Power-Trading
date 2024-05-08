@@ -592,3 +592,22 @@ rf_fit |>
 
 ```
 
+### Determine the Splits of the 3 regimes
+
+```{r}
+df |> 
+  select(date, contains("day_ahead_price")) |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(x = date, y = value, colour = name)) +
+  geom_line() +
+  facet_wrap(~ name, ncol = 1, scales = "free") +
+  scale_x_datetime(date_breaks = "6 months", date_labels = "%m-%Y") +
+  theme(legend.position = "none")
+```
+
+Splits that make sense:
+
+First: < 06/21 (Test: 70/30 split)
+Second: >= 06/21 & < 03/23 (Test: 70/30 split)
+Third: >= 03/23 (Test: 70/30 split)
+Fourth: everything (Test: > 09/23)
