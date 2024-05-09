@@ -19,7 +19,7 @@ library(fastTS)
 library(xts)
 
 
-source('builtin_functions.R')
+source('../02 Task 2 - Transmission Price/builtin_functions.R')
 
 
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
@@ -106,7 +106,7 @@ discontinue_variables <- df %>%
 
 
 df <- df %>%
-  mutate(across(all_of(discontinue_variables), ~ interpolation_vector())) #they will be the same for all type and price
+  mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.))) #they will be the same for all type and price
 
 
 write.csv(df, '0_df_final_imputed_shifting_a_ch.csv')
@@ -133,7 +133,7 @@ df <- read_csv("0_df_final_imputed_shifting_a.csv") %>%
   slice(25:n()) %>% 
   mutate(date = with_tz(date, tzone = "UTC")) %>% 
   mutate_at(vars(-date), as.numeric) %>% 
-  mutate(across(all_of(discontinue_variables), ~ interpolation_vector()))
+  mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.)))
 
 dummies_columns <- df %>%
   select(contains(c("_dummy"))) %>% 
@@ -145,7 +145,7 @@ df <- df %>%
 df <- df %>%
   select(-contains(c('cal_', 'dst'))) %>% 
   merge(., temp, by = "date", all = TRUE) %>% 
-  omit()
+  na.omit()
 
 
 write.csv(df, '0_df_final_imputed_shifting_a_de.csv')
@@ -168,7 +168,7 @@ df <- read_csv("0_df_final_imputed_shifting_a.csv") %>%
   slice(25:n()) %>% 
   mutate(date = with_tz(date, tzone = "UTC")) %>% 
   mutate_at(vars(-date), as.numeric) %>% 
-  mutate(across(all_of(discontinue_variables), ~ interpolation_vector()))
+  mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.)))
 
 dummies_columns <- df %>%
   select(contains(c("_dummy"))) %>% 
@@ -180,7 +180,7 @@ df <- df %>%
 df <- df %>%
   select(-contains(c('cal_', 'dst'))) %>% 
   merge(., temp, by = "date", all = TRUE) %>% 
-  na.omit(df)
+  na.omit()
 
 
 write.csv(df, '0_df_final_imputed_shifting_a_ch_de.csv')
@@ -204,7 +204,7 @@ df <- read_csv("0_df_final_imputed_shifting_a.csv") %>%
   slice(25:n()) %>% 
   mutate(date = with_tz(date, tzone = "UTC")) %>% 
   mutate_at(vars(-date), as.numeric) %>% 
-  mutate(across(all_of(discontinue_variables), ~ interpolation_vector()))
+  mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.)))
 
 dummies_columns <- df %>%
   select(contains(c("_dummy"))) %>% 
@@ -262,7 +262,7 @@ df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_c.
       allocatedCapacity_ch_de, 
       ~lag(., 24),
       .names = "{.col}_lag_24")) %>% 
-  mutate(across(all_of(discontinue_variables), ~ interpolation_vector())) %>% 
+  mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.))) %>% 
   select(-contains(c('cal_', 'dst'))) %>% 
   merge(., temp, by = "date", all = TRUE) %>% 
   na.omit()
@@ -273,7 +273,7 @@ write.csv(df, '0_df_final_imputed_shifting_c_ch.csv')
 # Price DE type C
 
 ```{r}
-df <- dread_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_c.csv")f %>% 
+df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_c.csv") %>% 
   mutate(
     across(
       day_ahead_price_at, 
@@ -307,7 +307,7 @@ df <- dread_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_c
       allocatedCapacity_ch_de, 
       ~lag(., 24),
       .names = "{.col}_lag_24")) %>% 
-  mutate(across(all_of(discontinue_variables), ~ interpolation_vector())) %>% 
+  mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.))) %>% 
   select(-contains(c('cal_', 'dst'))) %>% 
   merge(., temp, by = "date", all = TRUE) %>% 
   na.omit()
@@ -318,9 +318,7 @@ write.csv(df, '0_df_final_imputed_shifting_c_de.csv')
 
 # Price CH_DE type 
 ```{r}
-df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_c.csv")
-
-df <- df %>% 
+df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_c.csv") %>% 
   mutate(
     across(
       day_ahead_price_at, 
@@ -354,7 +352,7 @@ df <- df %>%
       allocatedCapacity_ch_de, 
       ~lag(., 24),
       .names = "{.col}_lag_24")) %>% 
-    mutate(across(all_of(discontinue_variables), ~ interpolation_vector())) %>% 
+    mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.))) %>% 
   select(-contains(c('cal_', 'dst'))) %>% 
   merge(., temp, by = "date", all = TRUE) %>% 
   na.omit()
@@ -399,7 +397,7 @@ df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_c.
       allocatedCapacity_ch_de, 
       ~lag(., 24),
       .names = "{.col}_lag_24")) %>% 
-    mutate(across(all_of(discontinue_variables), ~ interpolation_vector())) %>% 
+    mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.))) %>% 
   select(-contains(c('cal_', 'dst'))) %>% 
   merge(., temp, by = "date", all = TRUE) %>% 
   na.omit()

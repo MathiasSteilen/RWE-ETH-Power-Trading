@@ -1,53 +1,8 @@
-# Box Cox transformation
+#-------------------------------------------------------------------------------
+#                   Functions for interpolations
 
-boxcox_transform <- function(x, lambda = 0) {
-  y = x - min(x) + 1
-  if (lambda == 0) {
-    log(y)
-  } else {
-    (y^lambda - 1) / lambda
-  }
-}
-
-# Example:
-# df_box <- df_box %>%
-#   mutate_at(vars(all_of('prices_name')), ~ boxcox_transform(., lambda = 0))
-
-#Undo box
-undo_boxcox_transform <- function(y, lambda = 0, fl) {
-  if (lambda == 0) {
-    res = exp(y) + fl -1
-  } else {
-    res = (lambda*y+1)^(1/lambda) + fl -1
-  }
-  return(res)
-}
-
-
-
-interopolation <- function(y0, y1, len){
-  beta <- (y1-y0)/len
-  return(y0 + beta*(0:len))
-}
-
-
-interpolation_vector <- function(vec){
-  vec[1] <- vec[1]-0.000000001
-  vec[length(vec)] <- vec[length(vec)]-0.000000001
-  
-  consecutive <- which(!diff(vec) == 0)
-  
-  for(i in 1:(length(consecutive)-1)){
-    pos0 <- consecutive[i]
-    pos1 <- consecutive[i+1]
-    len <- pos1 - pos0 
-    vec[pos0:pos1] <- interopolation(vec[pos0], vec[pos1], len = len)
-  }
-  return(vec)
-}
-
-
-
+#Function for detecting variables to interpolate and the actual function for
+#interpolations.
 
 
 #                   Detect consecutive values different 0
@@ -75,16 +30,35 @@ detect_columns_with_consecutive <- function(df, n_consecutive = 3) {
 }
 
 
-#                                 Function smoothing
-
-# Function to apply ksmooth to a column 
-ksmooth_column <- function(column, band = 4) {
-  smoothed_values <- stats::ksmooth(1:length(column), column, bandwidth = band)$y
-  return(smoothed_values)
+interopolation <- function(y0, y1, len){
+  beta <- (y1-y0)/len
+  return(y0 + beta*(0:len))
 }
 
 
-#FAST TS  FUNCTIONS
+interpolation_vector <- function(vec){
+  vec[1] <- vec[1]-0.000000001
+  vec[length(vec)] <- vec[length(vec)]-0.000000001
+  
+  consecutive <- which(!diff(vec) == 0)
+  
+  for(i in 1:(length(consecutive)-1)){
+    pos0 <- consecutive[i]
+    pos1 <- consecutive[i+1]
+    len <- pos1 - pos0 
+    vec[pos0:pos1] <- interopolation(vec[pos0], vec[pos1], len = len)
+  }
+  return(vec)
+}
+
+
+
+#-------------------------------------------------------------------------------
+#                   Functions for automatization fastTS
+
+
+#Train the fastTS given the data and the response. 
+#return list of the adapted model
 model_list <- function(data, p.train = 0.8, response = 'day_ahead_price_de', nlag = 100) {
   # Selecting 'date' and 'response' columns and converting 'response' to numeric
   y <- xts(x = data[[response]], order.by = data$date)
@@ -101,31 +75,28 @@ model_list <- function(data, p.train = 0.8, response = 'day_ahead_price_de', nla
   return(model)
 }
 
-
-# Som e summary statisc
-fastTS_stat <- function(model){
-  cat('Summary Model:')
-  print(summary(model))
+#Summary statistics given the object returned from fastTS
+#The model that is selected for the diagnostic is the best model based on the 
+#best AICc.
+model_selected <- function(model_list, p.train = 0.7, lag.max = 5040) {
   
-  for (i in 1:10) {cat("\n")}
-  cat('Results Model:')
-  print(model$oos_results)
+  ics <- sapply(model_list$fits, AICc)
+  best_idx <- which(ics == min(ics), arr.ind = TRUE)
   
-  for (i in 1:10) {cat("\n")}
-  cat('Coefficient differnt from 0:')
-  coef(model)[coef(model) != 0,]   %>% sort(decreasing = T) %>% names()
-}
-
-
-
-
- 
-#model <- model_list$fits[[position of best gamma]] 
-#find best gamma in summary
-
-model_selected <- function(model_list, model, p.train = 0.8, lag.max = 5040) {
+  best_fit <- model_list$fits[[best_idx[2]]]
+  best_gamma <- model_list$gamma[best_idx[2]]
+  best_lambda <- best_fit$lambda[best_idx[1]]
   
-  pos <- which.min(model$loss)
+  
+  print(paste0('The best gamma based on AICc is: ', best_gamma))
+  print(paste0('The best lambda based on AICc is: ',best_lambda))
+  
+  model <- best_fit
+  
+  print(best_idx[1])
+  print(which.max(model$loss))
+  
+  pos <- best_idx[1]
   pred <- model$beta[, pos]
   
   X <- cbind(rep(1, nrow(model_list$Xfulltrain)), model_list$Xfulltrain)
@@ -157,14 +128,15 @@ model_selected <- function(model_list, model, p.train = 0.8, lag.max = 5040) {
   print(plot1)
   print(plot2)
   
-  acf(sol$difference, main = paste0('ACF Residuals', lag.max), lag.max = lag.max)
-  pacf(sol$difference, main = paste0('PACF Residuals', lag.max), lag.max = lag.max)
-  
-  acf(abs(sol$difference), main = paste0('ACF Absolute Residuals', lag.max), lag.max = lag.max)
-  pacf(abs(sol$difference), main = paste0('PACF Absolute Residuals', lag.max), lag.max = lag.max)
+  acf(sol$difference, main = paste0('ACF Residuals max_lag', lag.max), lag.max = lag.max)
+  pacf(sol$difference, main = paste0('PACF Residuals max_lag', lag.max), lag.max = lag.max)
   
   acf(sol$difference, main = 'ACF Residuals week', lag.max = 168)
   pacf(sol$difference, main = 'PACF Residuals week', lag.max = 168)
+  
+  
+  acf(abs(sol$difference), main = paste0('ACF Absolute Residuals max_lag', lag.max), lag.max = lag.max)
+  pacf(abs(sol$difference), main = paste0('PACF Absolute Residuals max_lag', lag.max), lag.max = lag.max)
   
   acf(abs(sol$difference), main = 'ACF Absolute Residuals week', lag.max = lag.max)
   pacf(abs(sol$difference), main = 'PACF Absolute Residuals week', lag.max = lag.max)
@@ -175,76 +147,6 @@ model_selected <- function(model_list, model, p.train = 0.8, lag.max = 5040) {
   
   return(list(sol = sol, pred = pred, model_matrix = X))
 }
-
-
-#Given the specific model (inside list of models) return the coefficient diffeernt from
-#zero based in numerical not on sigificance evel.
-read_coef <- function(mod) {
-  summary(mod)$table %>%
-    rownames_to_column(var = "rowname") %>%
-    filter(!str_detect(rowname, "lag")) %>% 
-    filter(!str_detect(rowname, "cal")) %>% 
-    pull(rowname) %>%
-    sort() %>% 
-    enframe()
-}
-
-
-#PROBBAY REMOVE
-
-#Given the list of models  adapted by fasTS and the best model, return some summary statistics.
-#model_selected <- function(model_list, model, p.train = 0.8, lag.max = 5040) {
-#  
-#  pos <- which.min(model$loss)
-#  pred <- model$beta[, pos]
-#  
-#  X <- cbind(rep(1, nrow(model_list$Xfulltrain)), model_list$Xfulltrain)
-#  fitted <- X %*% pred %>% matrix(ncol = 1)
-#  date_index <- index(model_list$y_cc_train)
-#  price <- coredata(model_list$y_cc_train)
-#  sol <- data.frame(response = price, 
-#                    fitted_response = fitted,
-#                    date = date_index)
-#  
-#  sol$difference <- sol$response - sol$fitted_response
-#  
-#  plot1 <- ggplot(sol, aes(x = date)) +
-#    geom_line(aes(y = fitted_response, col = 'Fitted')) +
-#    geom_line(aes(y = response, col = 'Actual')) +
-#    scale_x_datetime(date_labels = "%Y-%m") +
-#    labs(title = "Prices and Fitted fastTS",
-#         x = "Hourly data",
-#         y = "Price",
-#         color = "Day ahead prices") +
-#    scale_color_manual(values = c("Actual" = "grey", "Fitted" = "orange")) +
-#    theme(plot.margin = margin(10, 10, 10, 10), legend.position = "bottom")
-#  
-#  plot2 <- ggplot(sol, aes(x = date)) +
-#    geom_line(aes(y = difference), col = "blue") +
-#    scale_x_datetime(date_labels = "%Y-%m") +
-#    theme(plot.margin = margin(10, 10, 10, 10), legend.position = "bottom")
-#  
-#  print(plot1)
-#  print(plot2)
-#  
-#  acf(sol$difference, main = paste0('ACF Residuals', lag.max), lag.max = lag.max)
-#  pacf(sol$difference, main = paste0('PACF Residuals', lag.max), lag.max = lag.max)
-#  
-#  acf(abs(sol$difference), main = paste0('ACF Absolute Residuals', lag.max), lag.max = lag.max)
-#  pacf(abs(sol$difference), main = paste0('PACF Absolute Residuals', lag.max), lag.max = lag.max)
-#  
-#  acf(sol$difference, main = 'ACF Residuals week', lag.max = 168)
-#  pacf(sol$difference, main = 'PACF Residuals week', lag.max = 168)
-#  
-#  acf(abs(sol$difference), main = 'ACF Absolute Residuals week', lag.max = lag.max)
-#  pacf(abs(sol$difference), main = 'PACF Absolute Residuals week', lag.max = lag.max)
-#  
-#
-#  qqnorm(sol$difference)
-#  qqline(sol$difference)
-#  
-#  return(list(sol = sol, pred = pred, model_matrix = X))
-#}
 
 
 
@@ -519,16 +421,16 @@ prediction_step <- function(model_list){
   
   num_days <- Xfull %>% nrow() /24
   pred <- rep(NA, length(y))
-  best_fit_penalized_bic <- model_list$fits[[which.min(apply(sapply(model_list$fits, 
-                                                               BIC), 2, min))]]
+  best_fit_penalized_aic <- model_list$fits[[which.min(apply(sapply(model_list$fits, 
+                                                               AICc), 2, min))]]
   
   pred <- rep(NA, length(y))
   for (i in 1:num_days) {
     X_DAY <- Xfull[((i - 1) * 24 + 1):(i * 24), ]
     pre_temp <- rep(NA, 24)
     for (j in 1:24) {
-      pre_temp[j] <- predict(best_fit_penalized_bic, X = X_DAY[j, ], 
-                             which = which.min(BIC(best_fit_penalized_bic)))
+      pre_temp[j] <- predict(best_fit_penalized_aic, X = X_DAY[j, ], 
+                             which = which.min(BIC(best_fit_penalized_aic)))
       X_DAY[, j] <- pre_temp[j]
     }
     pred[((i - 1) * 24 + 1):(i * 24)] <- pre_temp
@@ -538,5 +440,5 @@ prediction_step <- function(model_list){
   rsq = rsq_trad_vec(pred %>% as.vector(), coredata(y)%>% as.vector())
   mae = mae_vec(pred %>% as.vector(), coredata(y)%>% as.vector())
   
-  return(list(rmse = rmse, rsq = rsq,mae = mae))
+  return(list(rmse = rmse, rsq = rsq, mae = mae))
 }
