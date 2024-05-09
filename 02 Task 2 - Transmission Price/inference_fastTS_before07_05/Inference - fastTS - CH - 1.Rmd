@@ -1,0 +1,567 @@
+---
+title: "fastTS"
+author: "Federico Deotto"
+date: "2024-04-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(lubridate)
+library(ggsci)
+library(scales)
+library(shiny)
+library(ncvreg)
+
+library(fastTS)
+library(xts)
+
+
+source('builtin_functions.R')
+
+
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Default theme for charts
+theme_set(
+  theme_bw() +
+    theme(  
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(
+        face = "italic", size = 10, colour = "green50"
+      )
+    )
+)
+
+```
+
+## The Goal
+
+Adapt the fastTS model for the different time window and for the different scenario.
+This operation has to be done for all the four prices.
+
+This file is specific to the day_ahead_price_ch.
+
+
+```{r}
+df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_a.csv")
+```
+Shifting the prices of other countries and jao auction.
+
+```{r}
+df <- df %>% 
+  mutate(
+    across(day_ahead_price_at, ~lag(., 24)),
+    across(day_ahead_price_de, ~lag(., 24)),
+    across(day_ahead_price_fr, ~lag(., 24)),
+    across(day_ahead_price_it, ~lag(., 24)),
+    across(auction_price_ch_de, ~lag(., 24)),
+    across(auction_price_de_ch, ~lag(., 24)),
+    across(allocatedCapacity_ch_de, ~lag(., 24)),
+    across(allocatedCapacity_de_ch, ~lag(., 24)))
+
+df |> 
+  is.na() |> 
+  colSums() |> 
+  enframe() |> 
+  filter(value > 0) |> 
+  arrange(-value) |> 
+  count(value)
+```
+
+
+Remove NA generated from lagging
+```{r}
+df <- df %>% 
+  arrange(date) %>% 
+  slice(25:n())
+```
+
+
+
+Convert dummies for missing values and variable dst into factor, and ensure that all numeric colums are encoded as such.
+```{r}
+df <- df %>% 
+  mutate(date = with_tz(date, tzone = "UTC"))
+
+df <- df %>%
+  mutate_at(vars(-date), as.numeric)
+
+dummies_columns <- df %>%
+  select(contains(c("_dummy", "cal_"))) %>% 
+  colnames()
+
+factor_colums <- c('dst', dummies_columns)
+
+df <- df %>%
+  mutate_at(vars(factor_colums), factor)
+```
+
+# Cutting of time series 
+
+The timestamps are selected arbitrarily. The guiding idea behind the choice was to roughly recover some stationarity conditions in the log-transformed price.
+```{r}
+first_cut <- as.POSIXct("2021-06-30 23:00:00", tz = "UTC")
+second_cut <- as.POSIXct("2022-12-31 23:00:00", tz = "UTC")
+```
+
+
+
+Conserving the name of variable
+
+```{r}
+substrings_to_remove <- c('_ch_de', '_de_ch', '_at', '_fr', '_ch', '_de',
+                          '_it', '_dummy', '_FR_CH', '_lu', '_missing')
+
+variable_names <- df %>% colnames() %>% 
+  map(~str_remove_all(., paste(substrings_to_remove, collapse = "|")))  %>%
+  unlist() %>% 
+  unique()
+
+variable_names
+
+variable_forecast <- variable_names[str_detect(variable_names, 'forecast')] %>%
+  str_remove('_forecast')
+variable_forecast
+```
+
+
+# Add interaction term between dst and other time-variable
+
+Adding interaction term and convert factor into matrix.
+```{r}
+x <- df %>%
+  select(contains(c('cal_', 'dst')))
+
+
+formula_str <- paste("~ dst +",
+                     paste(names(x)[-which(names(x) == "dst")], " * dst", sep = "", collapse = " + "), sep = "")
+formula_str <- formula(formula_str)
+
+x <- model.matrix(formula_str, data = x) %>% as_tibble() %>% select(-contains("Intercept")) %>% 
+  mutate_all(., as.factor)
+
+cond <- x %>%
+  mutate_all(as.numeric) %>% 
+  apply(., 2, function(x) all(x == 1))
+
+omit_names <- colnames(x)[cond]
+
+x <- x %>% 
+  select(-omit_names)
+
+df <- df %>% 
+  select(-contains(c('cal_', 'dst'))) %>% 
+  bind_cols(., x)
+```
+
+```{r}
+rm(x)
+```
+
+
+There are some variables that present constant values along the day or week. We decided to use a smoothing function to smooth these values.
+```{r}
+discontinue_variables <- df %>% 
+  select(where(is.numeric)) %>% 
+  slice(1700:1900) %>%     #easy for compuattion to subset
+  detect_columns_with_consecutive(n_consecutive = 13) %>%
+  select(-c(allocatedCapacity_ch_de, allocatedCapacity_de_ch)) %>% 
+  select(-contains('forecast')) %>% 
+  names()
+
+
+
+df <- df %>%
+  mutate(across(all_of(discontinue_variables), ~ ksmooth_column(., band = 3)))
+```
+
+# Transformation response
+
+We will consider the logaritmic version of the response.
+```{r}
+df <- df %>%
+   mutate_at(vars(all_of('day_ahead_price_ch')), ~ boxcox_transform(., lambda = 0))
+```
+
+
+# What we have?
+
+Datframe A, lagged the prices of other countries and JAO, log transformed the response, smoothed some varibales, introduce dummy for missing varibale, interaction term between dst and date_dummies.
+
+
+# fastTS
+The lasso model tries to incorporate seasonality: we have to choose properly the seasonal lag relative to the data available. More p* is huge lessa data we have, so I decided to consider a p* taht is approximatley a 10% of the observation.
+
+```{r}
+df %>% 
+  nrow()
+
+lag_1 = 24*30*6  # six month
+
+df  %>% 
+  filter(date < first_cut) %>% 
+  nrow() 
+
+lag_2 = 24*3*30 # three month
+
+
+df  %>% 
+  filter(date > first_cut & date < second_cut) %>% 
+  nrow() 
+
+lag_3 =24*2*30 #  two month
+
+
+df  %>% 
+  filter(date > second_cut) %>% 
+  nrow()
+
+lag_4 =24*1.5*30 # 1.5 month
+```
+
+```{r}
+mod_a_1_ch <- df %>% 
+  model_list(nlag = lag_1, response = 'day_ahead_price_ch')
+saveRDS(mod_a_1_ch, "mod_a_1_ch.rds")
+rm(mod_a_1_ch)
+```
+
+```{r}
+cond <- df %>%
+  filter(date < first_cut) %>%
+  select(-c(date, day_ahead_price_ch)) %>%
+  mutate_all(as.numeric) %>%
+  apply(2, function(x) all(x == 1))
+
+columns_to_remove <- names(cond)[cond]
+print(columns_to_remove)
+
+
+mod_a_2_ch <- df  %>% 
+  select(-any_of(columns_to_remove)) %>%
+  filter(date < first_cut) %>% 
+  model_list(nlag = lag_2, response = 'day_ahead_price_ch') 
+saveRDS(mod_a_2_ch, "mod_a_2_ch.rds")
+rm(mod_a_2_ch)
+```
+
+```{r}
+cond <- df %>%
+  filter(date > first_cut & date < second_cut) %>%
+  select(-c(date, day_ahead_price_ch)) %>%
+  mutate_all(as.numeric) %>%
+  apply(2, function(x) all(x == 1))
+
+columns_to_remove <- names(cond)[cond]
+print(columns_to_remove)
+
+
+mod_a_3_ch <- df  %>% 
+  select(-any_of(columns_to_remove)) %>%
+  filter(date > first_cut & date < second_cut) %>% 
+  model_list(nlag = lag_3, response = 'day_ahead_price_ch') 
+saveRDS(mod_a_3_ch, "mod_a_3_ch.rds")
+rm(mod_a_3_ch)
+```
+
+```{r}
+cond <- df %>%
+  filter(date > second_cut) %>%
+  select(-c(date, day_ahead_price_ch)) %>%
+  mutate_all(as.numeric) %>%
+  apply(2, function(x) all(x == 1))
+
+columns_to_remove <- names(cond)[cond]
+print(columns_to_remove)
+
+
+mod_a_4_ch <- df  %>% 
+  select(-any_of(columns_to_remove)) %>%
+  filter(date > second_cut) %>% 
+  model_list(nlag = lag_4, response = 'day_ahead_price_ch') 
+saveRDS(mod_a_4_ch, "mod_a_4_ch.rds")
+rm(mod_a_4_ch)
+```
+
+
+# Model B - Not shifted
+
+Preserving from previous the date_var
+
+```{r}
+temp <- df %>%
+  select(contains(c('cal_', 'dst', 'date')))
+
+df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_b.csv")
+
+df <- df %>%
+  select(-contains(c('cal_', 'dst'))) %>% 
+  merge(., temp, by = "date", all = TRUE)
+  
+rm(temp)
+```
+
+
+```{r}
+df %>%
+  filter(rowSums(is.na(.)) > 0) %>% 
+  select(date)
+
+df <- na.omit(df)
+
+
+df %>%
+  filter(rowSums(is.na(.)) > 0) %>% 
+  select(date)
+```
+
+
+#Smoothing
+
+```{r}
+discontinue_variables <- df %>% 
+  select(where(is.numeric)) %>% 
+  slice(1700:1900) %>%     #easy for compuattion to subset
+  detect_columns_with_consecutive(n_consecutive = 13) %>%
+  select(-c(allocatedCapacity_ch_de, allocatedCapacity_de_ch)) %>% 
+  select(-contains('forecast')) %>% 
+  names()
+
+df <- df %>%
+  mutate(across(all_of(discontinue_variables), ~ ksmooth_column(., band = 3)))
+```
+
+#Box Cox
+
+```{r}
+df <- df %>%
+   mutate_at(vars(all_of('day_ahead_price_ch')), ~ boxcox_transform(., lambda = 0))
+```
+
+
+
+```{r}
+mod_b_1_ch <- df %>% 
+  model_list(nlag = lag_1, response = 'day_ahead_price_ch')
+saveRDS(mod_b_1_ch, "mod_b_1_ch.rds")
+rm(mod_b_1_ch)
+```
+
+```{r}
+cond <- df %>%
+  filter(date < first_cut) %>%
+  select(-c(date, day_ahead_price_ch)) %>%
+  mutate_all(as.numeric) %>%
+  apply(2, function(x) all(x == 1))
+
+columns_to_remove <- names(cond)[cond]
+print(columns_to_remove)
+
+
+mod_b_2_ch <- df  %>% 
+  select(-any_of(columns_to_remove)) %>%
+  filter(date < first_cut) %>% 
+  model_list(nlag = lag_2, response = 'day_ahead_price_ch') 
+saveRDS(mod_b_2_ch, "mod_b_2_ch.rds")
+rm(mod_b_2_ch)
+```
+
+```{r}
+cond <- df %>%
+  filter(date > first_cut & date < second_cut) %>%
+  select(-c(date, day_ahead_price_ch)) %>%
+  mutate_all(as.numeric) %>%
+  apply(2, function(x) all(x == 1))
+
+columns_to_remove <- names(cond)[cond]
+print(columns_to_remove)
+
+
+mod_b_3_ch <- df  %>% 
+  select(-any_of(columns_to_remove)) %>%
+  filter(date > first_cut & date < second_cut) %>% 
+  model_list(nlag = lag_3, response = 'day_ahead_price_ch') 
+saveRDS(mod_b_3_ch, "mod_b_3_ch.rds")
+rm(mod_b_3_ch)
+```
+
+```{r}
+cond <- df %>%
+  filter(date > second_cut) %>%
+  select(-c(date, day_ahead_price_ch)) %>%
+  mutate_all(as.numeric) %>%
+  apply(2, function(x) all(x == 1))
+
+columns_to_remove <- names(cond)[cond]
+print(columns_to_remove)
+
+
+
+mod_b_4_ch <- df  %>% 
+  select(-any_of(columns_to_remove)) %>%
+  filter(date > second_cut) %>% 
+  model_list(nlag = lag_4, response = 'day_ahead_price_ch') 
+saveRDS(mod_b_4_ch, "mod_b_4_ch.rds")
+rm(mod_b_4_ch)
+```
+
+
+# Model C - mixed
+
+```{r}
+temp <- df %>%
+  select(contains(c('cal_', 'dst', 'date')))
+
+df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_c.csv")
+
+df <- df %>% 
+  mutate(
+    across(
+      day_ahead_price_at, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      day_ahead_price_fr, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      day_ahead_price_it, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      day_ahead_price_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+          auction_price_ch_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      auction_price_de_ch, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      allocatedCapacity_de_ch, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      allocatedCapacity_ch_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"))
+
+df <- df %>%
+  select(-contains(c('cal_', 'dst'))) %>% 
+  merge(., temp, by = "date", all = TRUE)
+  
+rm(temp)
+```
+
+```{r}
+df %>%
+  filter(rowSums(is.na(.)) > 0) %>% 
+  select(date)
+
+df <- na.omit(df)
+
+
+df %>%
+  filter(rowSums(is.na(.)) > 0) %>% 
+  select(date)
+```
+
+
+#Smoothing
+
+```{r}
+discontinue_variables <- df %>% 
+  select(where(is.numeric)) %>% 
+  slice(1700:1900) %>%     #easy for compuattion to subset
+  detect_columns_with_consecutive(n_consecutive = 13) %>%
+  select(-c(allocatedCapacity_ch_de, allocatedCapacity_de_ch)) %>% 
+  select(-contains('forecast')) %>% 
+  names()
+
+df <- df %>%
+  mutate(across(all_of(discontinue_variables), ~ ksmooth_column(., band = 3)))
+```
+
+
+#Box Cox
+
+```{r}
+df <- df %>%
+   mutate_at(vars(all_of('day_ahead_price_ch')), ~ boxcox_transform(., lambda = 0))
+```
+
+
+
+
+# Adapting
+
+```{r}
+mod_c_1_ch <- df %>% 
+  model_list(nlag = lag_1, response = 'day_ahead_price_ch')
+saveRDS(mod_c_1_ch, "mod_c_1_ch.rds")
+rm(mod_c_1_ch)
+```
+
+```{r}
+cond <- df %>%
+  filter(date < first_cut) %>%
+  select(-c(date, day_ahead_price_ch)) %>%
+  mutate_all(as.numeric) %>%
+  apply(2, function(x) all(x == 1))
+
+columns_to_remove <- names(cond)[cond]
+print(columns_to_remove)
+
+
+mod_c_2_ch <- df  %>% 
+  select(-any_of(columns_to_remove)) %>%
+  filter(date < first_cut) %>% 
+  model_list(nlag = lag_2, response = 'day_ahead_price_ch') 
+saveRDS(mod_c_2_ch, "mod_c_2_ch.rds")
+rm(mod_c_2_ch)
+```
+
+```{r}
+cond <- df %>%
+  filter(date > first_cut & date < second_cut) %>%
+  select(-c(date, day_ahead_price_ch)) %>%
+  mutate_all(as.numeric) %>%
+  apply(2, function(x) all(x == 1))
+
+columns_to_remove <- names(cond)[cond]
+print(columns_to_remove)
+
+
+mod_c_3_ch <- df  %>% 
+  select(-any_of(columns_to_remove)) %>%
+  filter(date > first_cut & date < second_cut) %>% 
+  model_list(nlag = lag_3, response = 'day_ahead_price_ch') 
+saveRDS(mod_c_3_ch, "mod_c_3_ch.rds")
+rm(mod_c_3_ch)
+```
+
+```{r}
+cond <- df %>%
+  filter(date > second_cut) %>%
+  select(-c(date, day_ahead_price_ch)) %>%
+  mutate_all(as.numeric) %>%
+  apply(2, function(x) all(x == 1))
+
+columns_to_remove <- names(cond)[cond]
+print(columns_to_remove)
+
+
+
+mod_c_4_ch <- df  %>% 
+  select(-any_of(columns_to_remove)) %>%
+  filter(date > second_cut) %>% 
+  model_list(nlag = lag_4, response = 'day_ahead_price_ch') 
+saveRDS(mod_c_4_ch, "mod_c_4_ch.rds")
+rm(mod_c_4_ch)
+```
