@@ -3,6 +3,8 @@ title: "final_dataframe"
 author: "Federico Deotto"
 date: "2024-05-08"
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -18,11 +20,9 @@ library(ncvreg)
 library(fastTS)
 library(xts)
 
-
-source('builtin_functions.R')
-
-
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+source('../02 Task 2 - Transmission Price/builtin_functions.R')
 
 # Default theme for charts
 theme_set(
@@ -106,7 +106,7 @@ discontinue_variables <- df %>%
 
 
 df <- df %>%
-  mutate(across(all_of(discontinue_variables), ~ interpolation_vector())) #they will be the same for all type and price
+  mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.))) #they will be the same for all type and price
 
 
 write.csv(df, '0_df_final_imputed_shifting_a_ch.csv')
