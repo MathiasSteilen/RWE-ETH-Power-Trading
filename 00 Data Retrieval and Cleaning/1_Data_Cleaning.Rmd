@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ---
 title: "final_dataframe"
 author: "Federico Deotto"
@@ -406,3 +407,411 @@ df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_c.
 
 write.csv(df, '0_df_final_imputed_shifting_de_ch.csv')
 ```
+=======
+---
+title: "final_dataframe"
+author: "Federico Deotto"
+date: "2024-05-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(lubridate)
+library(ggsci)
+library(scales)
+library(shiny)
+library(ncvreg)
+
+library(fastTS)
+library(xts)
+
+
+source('../02 Task 2 - Transmission Price/builtin_functions.R')
+
+
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Default theme for charts
+theme_set(
+  theme_bw() +
+    theme(  
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(
+        face = "italic", size = 10, colour = "green50"
+      )
+    )
+)
+```
+
+
+## GOAL
+Create final dataset for modeling. We will save two different type of dataset:
+type a which consist of covariates of a predictive model while type c which contains covairates both from today and tomorrow.  For each of this we have to shift the price acccordingly to the model that we intend to fit. So we will end up having 2*4 differnt dataframes.
+
+## Type A
+
+# CH price type A
+
+
+```{r}
+df <- read_csv("0_df_final_imputed_shifting_a.csv") %>% 
+  mutate(
+    across(day_ahead_price_at, ~lag(., 24)),
+    across(day_ahead_price_de, ~lag(., 24)),
+    across(day_ahead_price_fr, ~lag(., 24)),
+    across(day_ahead_price_it, ~lag(., 24)),
+    across(auction_price_ch_de, ~lag(., 24)),
+    across(auction_price_de_ch, ~lag(., 24)),
+    across(allocatedCapacity_ch_de, ~lag(., 24)),
+    across(allocatedCapacity_de_ch, ~lag(., 24))) %>% 
+  arrange(date) %>% 
+  slice(25:n()) %>% 
+  mutate(date = with_tz(date, tzone = "UTC")) %>% 
+  mutate_at(vars(-date), as.numeric)
+
+dummies_columns <- df %>%
+  select(contains(c("_dummy", "cal_"))) %>% 
+  colnames()
+
+factor_colums <- c('dst', dummies_columns)
+
+df <- df %>%
+  mutate_at(vars(factor_colums), factor)
+
+x <- df %>%
+  select(contains(c('cal_', 'dst')))
+
+formula_str <- paste("~ dst +",
+                     paste(names(x)[-which(names(x) == "dst")], " * dst", sep = "", collapse = " + "), sep = "")
+formula_str <- formula(formula_str)
+
+x <- model.matrix(formula_str, data = x) %>% as_tibble() %>% select(-contains("Intercept")) %>% 
+  mutate_all(., as.factor)
+
+cond <- x %>%
+  mutate_all(as.numeric) %>% 
+  apply(., 2, function(x) all(x == 1))
+
+omit_names <- colnames(x)[cond]
+
+x <- x %>% 
+  select(-omit_names)
+
+df <- df %>% 
+  select(-contains(c('cal_', 'dst'))) %>% 
+  bind_cols(., x)
+
+rm(x)
+
+discontinue_variables <- df %>% 
+  select(where(is.numeric)) %>% 
+  slice(1700:1900) %>%     #easy for compuattion to subset
+  detect_columns_with_consecutive(n_consecutive = 13) %>%
+  select(-c(allocatedCapacity_ch_de, allocatedCapacity_de_ch)) %>% 
+  select(-contains('forecast')) %>% 
+  names()
+
+
+df <- df %>%
+  mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.))) #they will be the same for all type and price
+
+
+write.csv(df, '0_df_final_imputed_shifting_a_ch.csv')
+```
+
+
+# DE price type A
+
+```{r}
+temp <- df %>%
+  select(contains(c('cal_', 'dst', 'date')))  #don't want to bind, be sure about date
+
+df <- read_csv("0_df_final_imputed_shifting_a.csv") %>% 
+  mutate(
+    across(day_ahead_price_at, ~lag(., 24)),
+    across(day_ahead_price_ch, ~lag(., 24)),
+    across(day_ahead_price_fr, ~lag(., 24)),
+    across(day_ahead_price_it, ~lag(., 24)),
+    across(auction_price_ch_de, ~lag(., 24)),
+    across(auction_price_de_ch, ~lag(., 24)),
+    across(allocatedCapacity_ch_de, ~lag(., 24)),
+    across(allocatedCapacity_de_ch, ~lag(., 24))) %>% 
+  arrange(date) %>% 
+  slice(25:n()) %>% 
+  mutate(date = with_tz(date, tzone = "UTC")) %>% 
+  mutate_at(vars(-date), as.numeric) %>% 
+  mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.)))
+
+dummies_columns <- df %>%
+  select(contains(c("_dummy"))) %>% 
+  colnames()
+
+df <- df %>%
+  mutate_at(vars(dummies_columns), factor)
+
+df <- df %>%
+  select(-contains(c('cal_', 'dst'))) %>% 
+  merge(., temp, by = "date", all = TRUE) %>% 
+  na.omit()
+
+
+write.csv(df, '0_df_final_imputed_shifting_a_de.csv')
+```
+
+# CH_DE price type A
+
+```{r}
+df <- read_csv("0_df_final_imputed_shifting_a.csv") %>% 
+  mutate(
+    across(day_ahead_price_at, ~lag(., 24)),
+    across(day_ahead_price_de, ~lag(., 24)),
+    across(day_ahead_price_fr, ~lag(., 24)),
+    across(day_ahead_price_it, ~lag(., 24)),
+    across(day_ahead_price_ch, ~lag(., 24)),
+    across(auction_price_de_ch, ~lag(., 24)),
+    across(allocatedCapacity_ch_de, ~lag(., 24)),
+    across(allocatedCapacity_de_ch, ~lag(., 24))) %>% 
+  arrange(date) %>% 
+  slice(25:n()) %>% 
+  mutate(date = with_tz(date, tzone = "UTC")) %>% 
+  mutate_at(vars(-date), as.numeric) %>% 
+  mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.)))
+
+dummies_columns <- df %>%
+  select(contains(c("_dummy"))) %>% 
+  colnames()
+
+df <- df %>%
+  mutate_at(vars(dummies_columns), factor)
+
+df <- df %>%
+  select(-contains(c('cal_', 'dst'))) %>% 
+  merge(., temp, by = "date", all = TRUE) %>% 
+  na.omit()
+
+
+write.csv(df, '0_df_final_imputed_shifting_a_ch_de.csv')
+```
+
+
+# DE_CH price type A
+
+```{r}
+df <- read_csv("0_df_final_imputed_shifting_a.csv") %>% 
+  mutate(
+    across(day_ahead_price_at, ~lag(., 24)),
+    across(day_ahead_price_de, ~lag(., 24)),
+    across(day_ahead_price_fr, ~lag(., 24)),
+    across(day_ahead_price_it, ~lag(., 24)),
+    across(day_ahead_price_ch, ~lag(., 24)),
+    across(auction_price_ch_de, ~lag(., 24)),
+    across(allocatedCapacity_ch_de, ~lag(., 24)),
+    across(allocatedCapacity_de_ch, ~lag(., 24))) %>% 
+  arrange(date) %>% 
+  slice(25:n()) %>% 
+  mutate(date = with_tz(date, tzone = "UTC")) %>% 
+  mutate_at(vars(-date), as.numeric) %>% 
+  mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.)))
+
+dummies_columns <- df %>%
+  select(contains(c("_dummy"))) %>% 
+  colnames()
+
+df <- df %>%
+  mutate_at(vars(dummies_columns), factor)
+
+df <- df %>%
+  select(-contains(c('cal_', 'dst'))) %>% 
+  merge(., temp, by = "date", all = TRUE) %>% 
+  na.omit()
+
+
+write.csv(df, '0_df_final_imputed_shifting_a_de_ch.csv')
+```
+
+## Type C
+
+
+# Price CH type C
+
+```{r}
+df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_c.csv") %>% 
+  mutate(
+    across(
+      day_ahead_price_at, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      day_ahead_price_fr, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      day_ahead_price_it, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      day_ahead_price_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+          auction_price_ch_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      auction_price_de_ch, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      allocatedCapacity_de_ch, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      allocatedCapacity_ch_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24")) %>% 
+  mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.))) %>% 
+  select(-contains(c('cal_', 'dst'))) %>% 
+  merge(., temp, by = "date", all = TRUE) %>% 
+  na.omit()
+
+write.csv(df, '0_df_final_imputed_shifting_c_ch.csv')
+```
+
+# Price DE type C
+
+```{r}
+df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_c.csv") %>% 
+  mutate(
+    across(
+      day_ahead_price_at, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      day_ahead_price_fr, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      day_ahead_price_it, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      day_ahead_price_ch, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+          auction_price_ch_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      auction_price_de_ch, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      allocatedCapacity_de_ch, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      allocatedCapacity_ch_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24")) %>% 
+  mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.))) %>% 
+  select(-contains(c('cal_', 'dst'))) %>% 
+  merge(., temp, by = "date", all = TRUE) %>% 
+  na.omit()
+
+write.csv(df, '0_df_final_imputed_shifting_c_de.csv')
+```
+
+
+# Price CH_DE type 
+```{r}
+df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_c.csv") %>% 
+  mutate(
+    across(
+      day_ahead_price_at, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      day_ahead_price_fr, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      day_ahead_price_it, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      day_ahead_price_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+          day_ahead_price_ch, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      auction_price_de_ch, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      allocatedCapacity_de_ch, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      allocatedCapacity_ch_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24")) %>% 
+    mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.))) %>% 
+  select(-contains(c('cal_', 'dst'))) %>% 
+  merge(., temp, by = "date", all = TRUE) %>% 
+  na.omit()
+
+write.csv(df, '0_df_final_imputed_shifting_ch_de.csv')
+```
+
+# Price DE_CH type C
+
+```{r}
+df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_c.csv") %>% 
+  mutate(
+    across(
+      day_ahead_price_at, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      day_ahead_price_fr, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      day_ahead_price_it, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      day_ahead_price_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+          day_ahead_price_ch, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      auction_price_ch_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      allocatedCapacity_de_ch, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24"),
+    across(
+      allocatedCapacity_ch_de, 
+      ~lag(., 24),
+      .names = "{.col}_lag_24")) %>% 
+    mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.))) %>% 
+  select(-contains(c('cal_', 'dst'))) %>% 
+  merge(., temp, by = "date", all = TRUE) %>% 
+  na.omit()
+
+write.csv(df, '0_df_final_imputed_shifting_de_ch.csv')
+```
+>>>>>>> 127f48d6a6b4640fa972782471fe09f80703f3fa

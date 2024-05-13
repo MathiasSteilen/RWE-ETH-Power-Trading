@@ -126,6 +126,7 @@ df2 %>%
   ggplot(aes(x = date))+
   geom_line(aes(y = day_ahead_price_de))
 ```
+
 ```{r}
 df %>% 
   mutate_at(vars(all_of('day_ahead_price_de')), ~ boxcox_transform(., lambda = 0)) %>% 
