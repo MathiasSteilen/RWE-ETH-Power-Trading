@@ -4,6 +4,8 @@ library(doParallel)
 library(ggsci)
 library(scales)
 library(vip)
+library(lightgbm)
+library(bonsai)
 
 df = read_csv(
   "../../00 Data Retrieval and Cleaning/0_df_predictive_ch_spot_price.csv"
@@ -47,7 +49,7 @@ xg_spec <- boost_tree(mtry = tune(),
                       min_n = tune(),
                       tree_depth = tune(),
                       learn_rate = tune()) |>
-  set_engine("xgboost") |>
+  set_engine("lightgbm") |>
   set_mode("regression")
 
 xg_wflow <- workflow() |> 
@@ -66,20 +68,20 @@ xg_grid <- grid_latin_hypercube(
 
 start_time = Sys.time()
 # Tuning Hyperparameters
-unregister_dopar <- function() {
-  env <- foreach:::.foreachGlobals
-  rm(list=ls(name=env), pos=env)
-}
-
-cl <- makePSOCKcluster(8)
-registerDoParallel(cl)
+# unregister_dopar <- function() {
+#   env <- foreach:::.foreachGlobals
+#   rm(list=ls(name=env), pos=env)
+# }
+# 
+# cl <- makePSOCKcluster(8)
+# registerDoParallel(cl)
 
 xg_tune <- tune_grid(object = xg_wflow,
                      grid = xg_grid,
                      resamples = folds)
 
-stopCluster(cl)
-unregister_dopar()
+# stopCluster(cl)
+# unregister_dopar()
 end_time = Sys.time()
 print(end_time - start_time)
 
