@@ -357,7 +357,7 @@ df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_c.
   merge(., temp, by = "date", all = TRUE) %>% 
   na.omit()
 
-write.csv(df, '0_df_final_imputed_shifting_ch_de.csv')
+write.csv(df, '0_df_final_imputed_shifting_c_ch_de.csv')
 ```
 
 # Price DE_CH type C
@@ -402,5 +402,5 @@ df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_c.
   merge(., temp, by = "date", all = TRUE) %>% 
   na.omit()
 
-write.csv(df, '0_df_final_imputed_shifting_de_ch.csv')
+write.csv(df, '0_df_final_imputed_shifting_c_de_ch.csv')
 ```
