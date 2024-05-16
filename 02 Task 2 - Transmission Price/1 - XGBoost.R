@@ -16,7 +16,7 @@ output_folders = c(
   "./1 - XGBoost - Prediction - CHDE - Data Predictive/",
   "./1 - XGBoost - Prediction - CHDE - Data Theoretical/",
   "./1 - XGBoost - Prediction - DECH - Data Predictive/",
-  "./1 - XGBoost - Prediction - DECH - Data Theoretical//"
+  "./1 - XGBoost - Prediction - DECH - Data Theoretical/"
 )
 
 target_vars = c(

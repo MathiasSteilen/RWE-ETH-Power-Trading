@@ -136,6 +136,15 @@ df <- df %>%
   filter(date < split_date)
 ```
 
+### Saving only the period we agreed on
+
+2023 onwards
+
+```{r}
+df = df |> 
+  filter(year(date) >= 2023)
+```
+
 ### Removing zero-variance predictors
 
 Find and remove zero variance variables:
@@ -267,7 +276,7 @@ The solar_forecast_country and the solar_actual_aggregated_country express simil
 remove_forecast <- c('solar_forecast_fr', 'solar_forecast_ch', 'solar_forecast_it','solar_forecast_at', 'wind_offshore_forecast_de', 'wind_onshore_forecast_de', 'wind_onshore_forecast_ch', 'wind_onshore_forecast_at')
 
 df <- df %>% 
-  select(!all_of(remove_forecast))
+  select(!any_of(remove_forecast))
 ```
 
 Write the non-imputed dataset to csv:
@@ -459,9 +468,89 @@ df |>
 
 Save the dataset in a file so we can use it in the future with the same imputation.
 
+### Interpolating variables that have low frequency
+
+First: Identify columns that have repeating values:
+
+```{r}
+same_as_before = df |> 
+  select(-date, -dst, -contains("dummy"), -contains("cal"),
+         -contains("capacity_forecast"), -contains("crossborder"),
+         -contains("allocated")) |> 
+  mutate(across(everything(), ~ .x == lag(.x))) |> 
+  pivot_longer(everything()) |> 
+  drop_na() |> 
+  group_by(name) |> 
+  summarise(value = mean(value)) 
+
+same_as_before |> 
+  ggplot(aes(value)) +
+  geom_histogram()
+
+df |> 
+  select(
+    date,
+    same_as_before |> 
+      filter(value > 0.9) |> 
+      pull(name)
+  ) |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(date, value)) +
+  geom_line() +
+  facet_wrap(~ name, scales = "free")
+```
+
+Looks like it's mostly hydro reservoir storage. Also, we have an issue with hydro storage having wrong values in Jan 2024. Let's fix these first:
+
+```{r}
+df = df |> 
+  mutate(
+    across(contains("hydro_reservoir_storage"),
+           ~ ifelse(.x == 0, NA, .x))
+  ) 
+
+df |> 
+  select(
+    date,
+    same_as_before |> 
+      filter(value > 0.9) |> 
+      pull(name)
+  ) |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(date, value)) +
+  geom_line() +
+  facet_wrap(~ name, scales = "free")
+```
+
+That looks better. Fill the gaps using forward fill.
+
+Now, let's interpolate these suckers:
+
+```{r}
+df = df |> 
+  fill(contains("hydro_reservoir_storage"), .direction = "down") |> 
+  mutate(
+   across(contains("hydro_reservoir_storage"),
+          ~ runner::runner(.x, mean, k = 24*7))
+  ) 
+
+df |> 
+  select(
+    date,
+    same_as_before |> 
+      filter(value > 0.9) |> 
+      pull(name)
+  ) |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(date, value)) +
+  geom_line() +
+  facet_wrap(~ name, scales = "free")
+```
+
+Looks good enough
+
+
 ### Shifting the variables
-
-
 
 We have decided on two main approaches for structuring the data:
 
@@ -540,20 +629,16 @@ df_predictive = df |>
       crossborder_actual_flow_it_ch,
       fossil_brown_coal_lignite_actual_aggregated_de,
       fossil_coal_derived_gas_actual_aggregated_it,
-      fossil_coal_derived_gas_actual_aggregated_it_missing_dummy,
       fossil_gas_actual_aggregated_at,
       fossil_gas_actual_aggregated_de,
       fossil_gas_actual_aggregated_fr,
       fossil_gas_actual_aggregated_it,
-      fossil_hard_coal_actual_aggregated_at,
       fossil_hard_coal_actual_aggregated_de,
       fossil_hard_coal_actual_aggregated_fr,
-      fossil_hard_coal_actual_aggregated_fr_missing_dummy,
       fossil_hard_coal_actual_aggregated_it,
       fossil_oil_actual_aggregated_de,
       fossil_oil_actual_aggregated_fr,
       fossil_oil_actual_aggregated_it,
-      fossil_oil_actual_aggregated_it_missing_dummy,
       g1_dummy,
       g2_dummy,
       g3_dummy,
@@ -573,9 +658,7 @@ df_predictive = df |>
       hydro_reservoir_storage_at,
       hydro_reservoir_storage_ch,
       hydro_reservoir_storage_fr,
-      hydro_reservoir_storage_fr_missing_dummy,
       hydro_reservoir_storage_it,
-      hydro_reservoir_storage_it_missing_dummy,
       hydro_run_of_river_and_poundage_actual_aggregated_at,
       hydro_run_of_river_and_poundage_actual_aggregated_de,
       hydro_run_of_river_and_poundage_actual_aggregated_fr,
@@ -586,7 +669,6 @@ df_predictive = df |>
       hydro_water_reservoir_actual_aggregated_fr,
       hydro_water_reservoir_actual_aggregated_fr_missing_dummy,
       hydro_water_reservoir_actual_aggregated_it,
-      hydro_water_reservoir_actual_aggregated_it_missing_dummy,
       hydro_water_reservoir_ch,
       nuclear_actual_aggregated_de,
       nuclear_actual_aggregated_de_missing_dummy,
@@ -594,7 +676,6 @@ df_predictive = df |>
       nuclear_ch,
       other_actual_aggregated_de,
       other_actual_aggregated_it,
-      other_actual_aggregated_it_missing_dummy,
       other_renewable_actual_aggregated_de,
       solar_actual_aggregated_at,
       solar_actual_aggregated_de,
@@ -605,6 +686,9 @@ df_predictive = df |>
       waste_actual_aggregated_fr,
       waste_actual_aggregated_it,
       wind_offshore_actual_aggregated_de,
+      wind_offshore_actual_aggregated_fr,
+      wind_offshore_actual_aggregated_fr_missing_dummy,
+      wind_offshore_actual_aggregated_it,
       wind_onshore_actual_aggregated_at,
       wind_onshore_actual_aggregated_de,
       wind_onshore_actual_aggregated_fr,
@@ -771,10 +855,9 @@ df_theoretical = df |>
   ) |> 
   # Drop forecast variables for solar and wind, not needed anymore
   select(-c(
-    solar_forecast_de, solar_forecast_de_missing_dummy, 
-    wind_onshore_forecast_fr, wind_onshore_forecast_fr_missing_dummy
+    solar_forecast_de, wind_onshore_forecast_fr, 
+    wind_onshore_forecast_fr_missing_dummy
   ))
-
 
 # Check if only 24 missing values are present
 df_predictive |> 
