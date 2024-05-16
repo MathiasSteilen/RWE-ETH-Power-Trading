@@ -7,17 +7,21 @@ output: html_document
 
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, cache = T)
 
-library(tidyverse)
+
+library(ggplot2)
 library(lubridate)
+library(readr)
+library(purrr)
+library(stringr)
+library(tidyr)
 library(ggsci)
 library(scales)
-library(shiny)
-library(ncvreg)
-
 library(fastTS)
+library(dplyr)
 library(xts)
+library(tibble)
 
 
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
@@ -42,7 +46,7 @@ In this Rmarkdown, we analyze the prices using a prediction perspective, i.e., w
 
 # German Price
 ```{r}
-time_cut <- as.POSIXct("2023-03-01 00:00:00", tz = "UTC")
+time_cut <- as.POSIXct("2023-01-01 00:00:00", tz = "UTC")
 
 df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_a_de.csv") %>% 
   filter(date >= time_cut)
@@ -55,9 +59,29 @@ variances = df %>%
   apply(2, var)
 
 null_variance_cols <- names(variances[variances == 0])
+df <- df %>% 
+  select(-all_of(null_variance_cols))
 
-df  %>% 
-  nrow() * 0.7
+
+reduntant_columns <- lm(day_ahead_price_de ~ ., data = df) |> 
+  broom::tidy() |> 
+  filter(is.na(estimate)) %>% 
+  pull(term) %>%
+  str_remove_all('`')
+
+df <- df %>% 
+  select(-all_of(reduntant_columns)) 
+
+n <- df  %>% 
+  nrow()
+
+x <- df  %>% 
+  filter(date >= as.POSIXct("2024-01-01 00:00:00", tz = "UTC")) %>% 
+  nrow()
+
+p.train <- ptrain <- 1-(x/n)
+
+rm(x, n)
 
 max_lag =24*30 # 1 month - this is the amount of data that we will lose by shifting
 ```
@@ -82,6 +106,14 @@ df %>%
   labs(title = 'Price tanh', x = 'Date', y = 'Price')
 ```
 
+
+
+```{r}
+min_value <- df %>%
+  summarize(minimum = min(day_ahead_price_de)) %>% 
+  pull()
+```
+
 # Modelling german price:
 
 We will adapt two kinds of models:
@@ -95,7 +127,7 @@ For both model we will also consider the squared version  of those coefficient t
 ```{r}
 models1 <- df %>% 
   mutate(day_ahead_price_de = log(day_ahead_price_de - min(day_ahead_price_de) + 1)) %>% 
-  model_list(p.train = 0.7, response = 'day_ahead_price_de', nlag = max_lag)
+  model_list(p.train = p.train, response = 'day_ahead_price_de', nlag = max_lag)
 
 summary(models1)
 
@@ -112,7 +144,7 @@ rm(temp)
 models2 <- df %>% 
   mutate(day_ahead_price_de = log(day_ahead_price_de - min(day_ahead_price_de) + 1)) %>%
   mutate(across(variables_to_square, ~ .^2, .names = "{.col}_squared")) %>% 
-  model_list(p.train = 0.7, response = 'day_ahead_price_de', nlag = max_lag)
+  model_list(p.train = p.train, response = 'day_ahead_price_de', nlag = max_lag)
 
 summary(models2)
 
@@ -142,7 +174,7 @@ Second type of models
 ```{r}
 models3 <- df %>% 
   mutate(day_ahead_price_de = log(day_ahead_price_de - min(day_ahead_price_de) + 1)) %>% 
-  model_list_prediction(ptrain = 0.7, response = 'day_ahead_price_de', n_lags_max = max_lag)
+  model_list_prediction(ptrain = p.train, response = 'day_ahead_price_de', n_lags_max = max_lag)
 
 summary(models3)
 
@@ -159,7 +191,7 @@ rm(temp)
 models4 <- df %>% 
   mutate(day_ahead_price_de = log(day_ahead_price_de - min(day_ahead_price_de) + 1)) %>%
   mutate(across(variables_to_square, ~ .^2, .names = "{.col}_squared")) %>% 
-  model_list_prediction(ptrain = 0.7, response = 'day_ahead_price_de', n_lags_max = max_lag)
+  model_list_prediction(ptrain = p.train, response = 'day_ahead_price_de', n_lags_max = max_lag)
 
 summary(models4)
 
@@ -185,27 +217,27 @@ setdiff(variables_after_square, variables_to_square)
 #Analisys of results.
 
 ```{r}
-diagnostic1 <- model_selected(models1, lag.max = max_lag, p.train = 0.7)
-prediction1 <- prediction_step(models1)
+diagnostic1 <- model_selected(models1, lag.max = max_lag, p.train = p.train)
+prediction1 <- prediction_step(models1, min_value)
 prediction1$oos_results
 ```
 
 ```{r}
-diagnostic2 <- model_selected(models2, lag.max = max_lag, p.train = 0.7)
-prediction2 <- prediction_step(models2)
+diagnostic2 <- model_selected(models2, lag.max = max_lag, p.train = p.train)
+prediction2 <- prediction_step(models2, min_value)
 prediction2$oos_results
 ```
 
 ```{r}
-diagnostic3 <- model_selected(models3, lag.max = max_lag, p.train = 0.7)
-prediction3 <- prediction_model(models3)
+diagnostic3 <- model_selected(models3, lag.max = max_lag, p.train = p.train)
+prediction3 <- prediction_model(models3, min_value)
 prediction3$oos_results
 ```
 
 ```{r}
-diagnostic4 <- model_selected(models4, lag.max = max_lag, p.train = 0.7)
+diagnostic4 <- model_selected(models4, lag.max = max_lag, p.train = p.train)
 
-prediction4 <- prediction_model(models4)
+prediction4 <- prediction_model(models4, min_value)
 prediction4$oos_results
 ```
 
@@ -227,9 +259,18 @@ variances = df %>%
   apply(2, var)
 
 null_variance_cols <- names(variances[variances == 0])
+df <- df %>% 
+  select(-all_of(null_variance_cols))
 
-df  %>% 
-  nrow() * 0.7
+
+reduntant_columns <- lm(day_ahead_price_de ~ ., data = df) |> 
+  broom::tidy() |> 
+  filter(is.na(estimate)) %>% 
+  pull(term) %>%
+  str_remove_all('`')
+
+df <- df %>% 
+  select(-all_of(reduntant_columns)) 
 
 max_lag =24*30 # 1 month - this is the amount of data that we will lose by shifting
 ```
@@ -242,7 +283,7 @@ As we did previously we will adapt two kinds of models.
 ```{r}
 models1 <- df %>% 
   mutate(day_ahead_price_de = log(day_ahead_price_de - min(day_ahead_price_de) + 1)) %>% 
-  model_list(p.train = 0.7, response = 'day_ahead_price_de', nlag = max_lag)
+  model_list(p.train = p.train, response = 'day_ahead_price_de', nlag = max_lag)
 
 summary(models1)
 
@@ -259,7 +300,7 @@ rm(temp)
 models2 <- df %>% 
   mutate(day_ahead_price_de = log(day_ahead_price_de - min(day_ahead_price_de) + 1)) %>%
   mutate(across(variables_to_square, ~ .^2, .names = "{.col}_squared")) %>% 
-  model_list(p.train = 0.7, response = 'day_ahead_price_de', nlag = max_lag)
+  model_list(p.train = p.train, response = 'day_ahead_price_de', nlag = max_lag)
 
 summary(models2)
 
@@ -289,7 +330,7 @@ Second type of models
 ```{r}
 models3 <- df %>% 
   mutate(day_ahead_price_de = log(day_ahead_price_de - min(day_ahead_price_de) + 1)) %>% 
-  model_list_prediction(ptrain = 0.7, response = 'day_ahead_price_de', n_lags_max = max_lag)
+  model_list_prediction(ptrain = p.train, response = 'day_ahead_price_de', n_lags_max = max_lag)
 
 summary(models3)
 
@@ -306,7 +347,7 @@ rm(temp)
 models4 <- df %>% 
   mutate(day_ahead_price_de = log(day_ahead_price_de - min(day_ahead_price_de) + 1)) %>%
   mutate(across(variables_to_square, ~ .^2, .names = "{.col}_squared")) %>% 
-  model_list_prediction(ptrain = 0.7, response = 'day_ahead_price_de', n_lags_max = max_lag)
+  model_list_prediction(ptrain = p.train, response = 'day_ahead_price_de', n_lags_max = max_lag)
 
 summary(models4)
 
@@ -332,27 +373,27 @@ setdiff(variables_after_square, variables_to_square)
 #Analisys of results.
 
 ```{r}
-diagnostic1 <- model_selected(models1, lag.max = max_lag, p.train = 0.7)
-prediction1 <- prediction_step(models1)
+diagnostic1 <- model_selected(models1, lag.max = max_lag, p.train = p.train)
+prediction1 <- prediction_step(models1, min_value)
 prediction1$oos_results
 ```
 
 ```{r}
-diagnostic2 <- model_selected(models2, lag.max = max_lag, p.train = 0.7)
-prediction2 <- prediction_step(models2)
+diagnostic2 <- model_selected(models2, lag.max = max_lag, p.train = p.train)
+prediction2 <- prediction_step(models2, min_value)
 prediction2$oos_results
 ```
 
 ```{r}
-diagnostic3 <- model_selected(models3, lag.max = max_lag, p.train = 0.7)
-prediction3 <- prediction_model(models3)
+diagnostic3 <- model_selected(models3, lag.max = max_lag, p.train = p.train)
+prediction3 <- prediction_model(models3, min_value)
 prediction3$oos_results
 ```
 
 ```{r}
-diagnostic4 <- model_selected(models4, lag.max = max_lag, p.train = 0.7)
+diagnostic4 <- model_selected(models4, lag.max = max_lag, p.train = p.train)
 
-prediction4 <- prediction_model(models4)
+prediction4 <- prediction_model(models4, min_value)
 prediction4$oos_results
 ```
 
