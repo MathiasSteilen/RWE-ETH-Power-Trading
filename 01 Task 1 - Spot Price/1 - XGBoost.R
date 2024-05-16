@@ -4,6 +4,9 @@ library(doParallel)
 library(ggsci)
 library(scales)
 library(vip)
+library(bonsai)
+
+setwd(dirname(rstudioapi::getActiveDocumentContext()[[2]]))
 
 input_files = c(
   "../00 Data Retrieval and Cleaning/0_df_predictive_ch_spot_price.csv",
@@ -83,16 +86,27 @@ for (i in 1:length(input_files)){
     min_n(),
     tree_depth(),
     learn_rate(),
-    size = 250
+    size = 100
   )
   
   # Run grid search
+  unregister_dopar <- function() {
+    env <- foreach:::.foreachGlobals
+    rm(list=ls(name=env), pos=env)
+  }
+
+  cl <- makePSOCKcluster()
+  registerDoParallel(cl)
+
   start_time = Sys.time()
   xg_tune <- tune_grid(object = xg_wflow,
                        grid = xg_grid,
                        resamples = folds)
   end_time = Sys.time()
   print(end_time - start_time)
+
+  stopCluster(cl)
+  unregister_dopar()
   
   # Write results to csv
   tuning_results = xg_tune |> 
@@ -128,12 +142,12 @@ for (i in 1:length(input_files)){
   xg_final_fit |>
     extract_fit_parsnip() |>
     vip::vi() |> 
-    write_csv(paste0(output_folders[i], "variable_importance_split.csv"))
+    write_csv(paste0(output_folders[i], "variable_importance.csv"))
   
   # Write predictions
   xg_final_fit |> 
     augment(dt_test) |> 
     select(date, day_ahead_price_de, .pred) |> 
-    write_csv(paste0(output_folders[i],"holdout_predictions_split.csv"))
+    write_csv(paste0(output_folders[i],"holdout_predictions.csv"))
 }
 
