@@ -1,35 +1,35 @@
-Colnames;Predictive;Theoretical;Note
-date or calendar information;0;0;
-auction_price;1;1;NOT IF IT IS THE RESPONSE
-allocatedCapacity;1;1;
-day_ahead_price;1;1;NOT IF IT IS THE RESPONSE
-actual_load;1;1;
-biomass_actual_aggregated;1;0;
-capacity_forecast;1;0;
-crossborder_actual_flow;1;0;
-fossil_brown_coal_lignite_actual_aggregated;1;0;
-fossil_coal.derived_gas_actual_aggregated;1;0;
-fossil_gas_actual_aggregated;1;0;
-fossil_hard_coal_actual_aggregated;1;0;
-fossil_oil_actual_aggregated;1;0;
-geothermal_actual_aggregated;1;0;
-hydro_pumped_storage;1;0;
-hydro_pumped_storage_actual_aggregated;1;0;
-hydro_pumped_storage_actual_consumption;1;0;
-hydro_reservoir_storage;1;0;
-hydro_run.of.river_and_poundage;1;0;
-hydro_run.of.river_and_poundage_actual_aggregated;1;0;
-hydro_water_reservoir;1;0;
-hydro_water_reservoir_actual_aggregated;1;0;
-nuclear;1;0;
-nuclear_actual_aggregated;1;0;
-other_actual_aggregated;1;0;
-other_renewable_actual_aggregated;1;0;
-solar;1;0;
-solar_actual_aggregated;1;0;
-solar_forecast;0;-;
-waste_actual_aggregated;1;0;
-wind_offshore_actual_aggregated;1;0;
-wind_onshore;1;0;
-wind_onshore_actual_aggregated;1;0;
-wind_onshore_forecast;0;-;
+Colnames,Predictive,Theoretical,Note
+auction_price,1,1,NOT IF IT IS THE RESPONSE
+allocatedCapacity,1,1,
+date or calendar information,0,0,
+day_ahead_price,1,1,NOT IF IT IS THE RESPONSE
+actual_load,1,1,
+biomass_actual_aggregated,1,0,
+capacity_forecast,0,0,
+crossborder_actual_flow,1,0,
+fossil_brown_coal_lignite_actual_aggregated,1,0,
+fossil_coal.derived_gas_actual_aggregated,1,0,
+fossil_gas_actual_aggregated,1,0,
+fossil_hard_coal_actual_aggregated,1,0,
+fossil_oil_actual_aggregated,1,0,
+geothermal_actual_aggregated,1,0,
+hydro_pumped_storage,1,0,
+hydro_pumped_storage_actual_aggregated,1,0,
+hydro_pumped_storage_actual_consumption,1,0,
+hydro_reservoir_storage,1,0,
+hydro_run.of.river_and_poundage,1,0,
+hydro_run.of.river_and_poundage_actual_aggregated,1,0,
+hydro_water_reservoir,1,0,
+hydro_water_reservoir_actual_aggregated,1,0,
+nuclear,1,0,
+nuclear_actual_aggregated,1,0,
+other_actual_aggregated,1,0,
+other_renewable_actual_aggregated,1,0,
+solar,1,0,
+solar_actual_aggregated,1,0,
+solar_forecast,0,-,
+waste_actual_aggregated,1,0,
+wind_offshore_actual_aggregated,1,0,
+wind_onshore,1,0,
+wind_onshore_actual_aggregated,1,0,
+wind_onshore_forecast,0,-,
