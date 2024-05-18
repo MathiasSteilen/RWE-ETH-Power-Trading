@@ -120,7 +120,7 @@ for i in range(len(input_files)):
 
     # Create the study object and optimize the objective function
     study = optuna.create_study(direction="minimize")
-    study.optimize(objective, n_trials=None, timeout=60*1)
+    study.optimize(objective, n_trials=None, timeout=60*60*3)
 
     # Get the best hyperparameters
     best_params = study.best_params
