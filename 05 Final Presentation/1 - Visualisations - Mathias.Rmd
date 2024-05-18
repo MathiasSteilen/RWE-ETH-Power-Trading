@@ -1,0 +1,330 @@
+---
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(ggsci)
+library(scales)
+library(tidymodels)
+
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Default theme for charts
+theme_set(
+  theme_bw() +
+    theme(  
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(
+        face = "italic", size = 10, colour = "grey50"
+      )
+    )
+)
+
+```
+
+### Fig 1: Three regimes
+
+```{r}
+# Read data
+df = read_csv(
+  "../00 Data Retrieval and Cleaning/0_df_final_ch-de_UTC.csv"
+) |> 
+  arrange(date)
+
+# Make the chart
+df |> 
+  select(date, day_ahead_price_ch, day_ahead_price_de) |> 
+  pivot_longer(-date) |> 
+  filter(value > -200) |> 
+  mutate(name = ifelse(str_detect(name, "_ch"), "CH", "DE")) |> 
+  ggplot(aes(date, value)) +
+  geom_line() +
+  facet_wrap(~ name, scales = "free", ncol = 1) +
+  labs(title = "Spot Prices", y = "EUR", x = "Date")
+
+# Save the chart
+ggsave(
+  filename = "01 - Spot price regimes.png", unit = "cm", dpi = 300, 
+  width = 25, height = 10
+)
+```
+
+```{r}
+# Read data
+
+# Make chart
+
+# Save chart
+```
+
+
+
+### The Target Variable
+
+```{r}
+df |> 
+  select(date, auction_price, allocatedCapacity, ATC) |> 
+  mutate(difference_allocated = ATC - allocatedCapacity) |> 
+  summary()
+```
+
+```{r}
+df |> 
+  select(date, auction_price, allocatedCapacity) |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(value)) +
+  geom_histogram() +
+  facet_wrap(~ name, scales = "free")
+```
+
+```{r}
+df |> 
+  select(date, auction_price, allocatedCapacity, ATC) |> 
+  ggplot(aes(date, auction_price)) +
+  geom_line()
+```
+
+Prices are zero often, the increase in electricity prices has driven prices higher in 2022.
+
+Generally, the higher the spread, the higher the auction price (makes sense), but there are plenty of times still where the JAO price is much too low. This chart does not reveal a structural mispricing of the auction.
+
+```{r}
+df |> 
+  transmute(auction_price, spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  ggplot(aes(spread, auction_price)) +
+  geom_point(alpha = 0.3) +
+  geom_abline()
+```
+
+### Seasonality of target
+
+Distribution by year, month, week, day of week, hour in day
+
+```{r}
+df |> 
+  mutate(year = year(date))  |> 
+  group_by(year) |> 
+  summarise(auction_price = mean(auction_price)) |> 
+  ungroup() |> 
+  ggplot(aes(year, auction_price)) +
+  geom_col()
+```
+
+There does not seem to be a trend in the average auction price.
+
+```{r}
+df |> 
+  mutate(month = month(date)) |> 
+  ggplot(aes(month, auction_price, group = month)) +
+  geom_boxplot(outlier.colour = NA) +
+  coord_cartesian(ylim = c(0, 2.5))
+```
+
+Auction prices are higher in the summer months, this ties in well with the spread being positive much more often over the summer months:
+
+```{r}
+df |> 
+  transmute(date, auction_price, 
+            spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  mutate(month = month(date)) |> 
+  ggplot(aes(month, spread, group = month)) +
+  geom_boxplot(outlier.colour = NA) +
+  coord_cartesian(ylim = c(-75, 50))
+
+df |> 
+  transmute(date, auction_price, 
+            spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  mutate(month = month(date)) |> 
+  group_by(month) |> 
+  summarise(positive = mean(spread > 0)) |> 
+  ggplot(aes(month, positive)) +
+  geom_line() +
+  geom_point() +
+  labs(y = "Fraction of positive spread hours", x = "Month in year")
+```
+
+Similar picture for week in year:
+
+```{r}
+df |> 
+  mutate(week = week(date)) |> 
+  ggplot(aes(week, auction_price, group = week)) +
+  geom_boxplot(outlier.colour = NA) +
+  coord_cartesian(ylim = c(0, 2.5))
+
+df |> 
+  transmute(date, auction_price, 
+            spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  mutate(week = week(date)) |> 
+  group_by(week) |> 
+  summarise(positive = mean(spread > 0)) |> 
+  ggplot(aes(week, positive)) +
+  geom_line() +
+  geom_point() +
+  labs(y = "Fraction of positive spread hours", x = "Month in year")
+```
+
+Slight structure in weekday which is not really backed up by the spread.
+
+```{r}
+df |> 
+  mutate(dow = wday(date)) |> 
+  ggplot(aes(dow, auction_price, group = dow)) +
+  geom_boxplot(outlier.colour = NA) +
+  coord_cartesian(ylim = c(0, 0.5))
+
+df |> 
+  transmute(date, auction_price, 
+            spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  mutate(dow = wday(date)) |> 
+  group_by(dow) |> 
+  summarise(positive = mean(spread > 0)) |> 
+  ggplot(aes(dow, positive)) +
+  geom_line() +
+  geom_point() +
+  labs(y = "Fraction of positive spread hours", x = "Month in year")
+```
+
+There is a VERY strong structure in the hour in day.
+
+```{r}
+df |> 
+  mutate(hour = hour(date)) |> 
+  ggplot(aes(hour, auction_price, group = hour)) +
+  geom_boxplot(outlier.colour = NA) +
+  coord_cartesian(ylim = c(0, 3))
+
+df |> 
+  transmute(date, auction_price, 
+            spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  mutate(hour = hour(date)) |> 
+  group_by(hour) |> 
+  summarise(positive = mean(spread > 0)) |> 
+  ggplot(aes(hour, positive)) +
+  geom_line() +
+  geom_point() +
+  labs(y = "Fraction of positive spread hours", x = "Month in year")
+```
+
+Dig into this by quarter: Weirdly, the spread exhibits a similar structure but the JAO pricing does not. Analyse the mispricing below.
+
+```{r}
+df |> 
+  mutate(hour = hour(date), quarter = quarter(date)) |> 
+  ggplot(aes(hour, auction_price, group = hour)) +
+  geom_boxplot(outlier.colour = NA) +
+  coord_cartesian(ylim = c(0, 3)) +
+  facet_wrap(~ quarter, scales = "free")
+
+df |> 
+  transmute(date, auction_price, 
+            spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  mutate(hour = hour(date), quarter = quarter(date)) |> 
+  group_by(hour, quarter) |> 
+  summarise(positive = mean(spread > 0)) |> 
+  ungroup() |> 
+  ggplot(aes(hour, positive)) +
+  geom_line() +
+  geom_point() +
+  labs(y = "Fraction of positive spread hours", x = "Month in year") +
+  facet_wrap(~ quarter, scales = "free")
+```
+
+### Over vs. underpaying
+
+Definitions:
+- Overpaying: JAO Price > Spread
+- Underpaying: JAO Price < Spread
+
+Attention: This only holds in situation where spread > 0.
+
+```{r}
+df |> 
+  transmute(date, auction_price, 
+            spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  filter(spread > 0) |> 
+  mutate(hour = hour(date), quarter = quarter(date)) |> 
+  group_by(hour, quarter) |> 
+  summarise(overpaid = mean(auction_price > spread)) |> 
+  ungroup() |> 
+  ggplot(aes(hour, overpaid)) +
+  geom_line() +
+  geom_point() +
+  labs(y = "Fraction of overpaying", x = "Month in year") +
+  facet_wrap(~ quarter, scales = "free")
+
+df |>
+  transmute(date, auction_price, 
+            spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  filter(spread > 0) |> 
+  mutate(delta = spread - auction_price) |> 
+  mutate(hour = hour(date), quarter = quarter(date)) |> 
+  ggplot(aes(hour, delta, group = hour)) +
+  geom_boxplot(outlier.colour = NA) +
+  facet_wrap(~ quarter, scales = "free") +
+  coord_cartesian(ylim = c(-10, 20)) +
+  geom_hline(yintercept = 0, colour = "red") +
+  labs(title = "Delta: Spread minus JAO (implicitly profit)")
+```
+
+JAO is a lot more competitive in the summer as the spread if more positive in these situations.
+
+### Seasonality of spread
+
+```{r}
+df |>
+  transmute(date, auction_price, 
+            spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  mutate(hour = hour(date), quarter = quarter(date)) |> 
+  ggplot(aes(hour, spread, group = hour)) +
+  geom_boxplot(outlier.colour = NA) +
+  facet_wrap(~ quarter, scales = "free") +
+  coord_cartesian(ylim = c(-100, 40)) +
+  geom_hline(yintercept = 0, colour = "red") +
+  labs(title = "Spread: Germany minus Switzerland")
+```
+
+The spread follows the duck curve in the Summer.
+
+```{r}
+df |>
+  transmute(date, day_ahead_price_de, day_ahead_price_ch) |> 
+  mutate(hour = hour(date), quarter = quarter(date)) |>
+  pivot_longer(-c(date, quarter, hour)) |> 
+  group_by(hour, quarter, name) |> 
+  summarise(price = mean(value)) |> 
+  ggplot(aes(hour, price, colour = name)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~ quarter, nrow = 1) +
+  labs(title = "Spot Prices")
+```
+
+```{r}
+df |>
+  transmute(date, day_ahead_price_de, day_ahead_price_ch) |> 
+  mutate(month = month(date)) |>
+  pivot_longer(-c(date, month)) |> 
+  group_by(month, name) |> 
+  summarise(price = mean(value)) |> 
+  ggplot(aes(month, price, colour = name)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Spot Prices")
+```
+
+
+```{r}
+df |>
+  transmute(date, day_ahead_price_de, day_ahead_price_ch) |> 
+  mutate(month = month(date)) |>
+  pivot_longer(-c(date, month)) |> 
+  ggplot(aes(factor(month), value, fill = name)) +
+  geom_boxplot(outlier.colour = NA) +
+  coord_cartesian(ylim = c(-50, 300)) +
+  labs(title = "Spot Prices")
+```

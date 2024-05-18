@@ -108,10 +108,10 @@ for i in range(len(input_files)):
             pd.concat(val_pred_dfs)
             .merge(df_val, how="left", left_on="date", right_on="ds")
             .drop(columns=["unique_id", "ds"])
-            .rename(columns={"y": ".actual"})
+            .rename(columns={"y": "actual"})
             .dropna()
         )
-        val_loss = mean_absolute_error(val_pred_df[".actual"], val_pred_df[".pred"])
+        val_loss = mean_absolute_error(val_pred_df["actual"], val_pred_df[".pred"])
 
         return val_loss
 
@@ -173,8 +173,8 @@ for i in range(len(input_files)):
         pd.concat(test_pred_dfs)
         .merge(df, how="left", left_on="date", right_on="ds")
         .drop(columns=["unique_id", "ds"])
-        .rename(columns={"y": ".actual"})
+        .rename(columns={"y": "actual"})
         .dropna()
     )
 
-    test_pred_df.to_csv(f"{output_folders[i]}/test_predictions.csv", index=False)
+    test_pred_df.to_csv(f"{output_folders[i]}/holdout_predictions.csv", index=False)

@@ -188,6 +188,16 @@ tibble(
        y = "# of cols", x = "Minimum Missing Percentage") +
   scale_x_continuous(breaks = seq(0, 1, 0.1), 
                      labels = percent_format())
+
+df |> 
+  is.na() |> 
+  colMeans() |> 
+  enframe() |> 
+  ggplot(aes(value)) +
+  geom_histogram() +
+  labs(title = "Histogram of missingness in covariates",
+       y = "Count of covariates", x = "Missingness") +
+  scale_x_continuous(labels = percent_format())
 ```
 
 We decided to limit ourselves to discard columns with more than 60% of missing data:
@@ -486,18 +496,6 @@ same_as_before = df |>
 same_as_before |> 
   ggplot(aes(value)) +
   geom_histogram()
-
-df |> 
-  select(
-    date,
-    same_as_before |> 
-      filter(value > 0.9) |> 
-      pull(name)
-  ) |> 
-  pivot_longer(-date) |> 
-  ggplot(aes(date, value)) +
-  geom_line() +
-  facet_wrap(~ name, scales = "free")
 ```
 
 Looks like it's mostly hydro reservoir storage. Also, we have an issue with hydro storage having wrong values in Jan 2024. Let's fix these first:
@@ -517,9 +515,11 @@ df |>
       pull(name)
   ) |> 
   pivot_longer(-date) |> 
-  ggplot(aes(date, value)) +
+  ggplot(aes(date, value, linetype = name)) +
   geom_line() +
-  facet_wrap(~ name, scales = "free")
+  # facet_wrap(~ name, scales = "free", nrow = 1) +
+  labs(title = "Weekly hydrostorage data", y = "MWh", x = "Date") +
+  theme(legend.title = element_blank())
 ```
 
 That looks better. Fill the gaps using forward fill.
@@ -530,8 +530,8 @@ Now, let's interpolate these suckers:
 df = df |> 
   fill(contains("hydro_reservoir_storage"), .direction = "down") |> 
   mutate(
-   across(contains("hydro_reservoir_storage"),
-          ~ runner::runner(.x, mean, k = 24*7))
+    across(contains("hydro_reservoir_storage"),
+           ~ runner::runner(.x, mean, k = 24*7))
   ) 
 
 df |> 
@@ -542,9 +542,12 @@ df |>
       pull(name)
   ) |> 
   pivot_longer(-date) |> 
-  ggplot(aes(date, value)) +
+  ggplot(aes(date, value, linetype = name)) +
   geom_line() +
-  facet_wrap(~ name, scales = "free")
+  # facet_wrap(~ name, scales = "free", nrow = 1) +
+  labs(title = "Weekly hydrostorage data after interpolation",
+       y = "MWh", x = "Date") +
+  theme(legend.title = element_blank())
 ```
 
 Looks good enough
