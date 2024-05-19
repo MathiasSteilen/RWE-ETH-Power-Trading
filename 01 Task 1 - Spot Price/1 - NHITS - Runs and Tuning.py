@@ -280,7 +280,6 @@ def objective(trial):
 
     return val_loss
 
-
 # Set three months aside for validation
 VALIDATION_SIZE = 92 * 24
 
@@ -289,7 +288,7 @@ study = optuna.create_study(direction="minimize")
 study.optimize(
     objective,
     n_trials=None,
-    timeout=60 * 60 * 4
+    timeout=60 * 60 * 3
 )
 
 # Get the best hyperparameters
@@ -309,11 +308,13 @@ model = NHITS(
     h=38,
     input_size=best_params["lookback_window"],
     loss=MSE(),
+    scaler_type="standard",
     max_steps=500,
     val_check_steps=5,
     early_stop_patience_steps=4,
     learning_rate=best_params["learning_rate"],
     batch_size=best_params["batch_size"],
+    futr_exog_list=df_train.drop(columns=["y", "unique_id", "ds"]).columns.tolist(),
 )
 
 # Create neuralforecast object
