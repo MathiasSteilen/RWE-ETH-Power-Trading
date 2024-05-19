@@ -236,11 +236,13 @@ def objective(trial):
         h=38,
         input_size=lookback_window,
         loss=MSE(),
+        scaler_type="standard",
         max_steps=500,
-        val_check_steps=5,
+        val_check_steps=10,
         early_stop_patience_steps=4,
         learning_rate=learning_rate,
         batch_size=batch_size,
+        futr_exog_list=df_train.drop(columns=["y", "unique_id", "ds"]).columns.tolist(),
     )
 
     # Create neuralforecast object
@@ -258,7 +260,7 @@ def objective(trial):
         pred_day = ts.date() + pd.Timedelta(1, unit="days")
         df_pred = df_train.query("@start_ts <= ds <= @end_ts")
 
-        y_hat = nf.predict(df_pred).reset_index()
+        y_hat = nf.predict(futr_df=df_pred).reset_index()
         y_hat = (
             y_hat.query("ds.dt.date == @pred_day")
             .rename(columns={"NHITS": ".pred", "ds": "date"})
@@ -331,7 +333,7 @@ for ts in pred_timestamps:
     pred_day = ts.date() + pd.Timedelta(1, unit="days")
     df_pred = df_full.query("@start_ts <= ds <= @end_ts")
     
-    y_hat = nf.predict(df_pred).reset_index()
+    y_hat = nf.predict(futr_df=df_pred).reset_index()
     y_hat = (
         y_hat.query("ds.dt.date == @pred_day")
         .rename(columns={"NHITS": ".pred"})
