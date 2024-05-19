@@ -15,7 +15,8 @@ input_files = c(
   "../00 Data Retrieval and Cleaning/0_df_predictive_ch_spot_price.csv",
   "../00 Data Retrieval and Cleaning/0_df_theoretical_ch_spot_price.csv",
   "../00 Data Retrieval and Cleaning/0_df_predictive_de_spot_price.csv",
-  "../00 Data Retrieval and Cleaning/0_df_theoretical_de_spot_price.csv"
+  "../00 Data Retrieval and Cleaning/0_df_theoretical_de_spot_price.csv",
+  "../00 Data Retrieval and Cleaning/0_df_final_ml_predictive.csv"
 )
 
 output_folders = c(
@@ -30,7 +31,8 @@ output_folders = c(
   "../01 Task 1 - Spot Price/1 - NBEATS - Prediction - CH - Data Predictive/",
   "../01 Task 1 - Spot Price/1 - NBEATS - Prediction - CH - Data Theoretical/",
   "../01 Task 1 - Spot Price/1 - NBEATS - Prediction - DE - Data Predictive/",
-  "../01 Task 1 - Spot Price/1 - NBEATS - Prediction - DE - Data Theoretical/"
+  "../01 Task 1 - Spot Price/1 - NBEATS - Prediction - DE - Data Theoretical/",
+  "../01 Task 1 - Spot Price/1 - NHITS - Prediction - CH - Data Predictive/"
 )
 
 data_type = c(
@@ -45,7 +47,8 @@ data_type = c(
   "Predictive",
   "Theoretical",
   "Predictive",
-  "Theoretical"
+  "Theoretical",
+  "Predictive"
 )
 
 target_vars = c(
@@ -60,7 +63,8 @@ target_vars = c(
   "day_ahead_price_ch",
   "day_ahead_price_ch",
   "day_ahead_price_de",
-  "day_ahead_price_de"
+  "day_ahead_price_de",
+  "day_ahead_price_ch"
 )
 
 model = c(
@@ -75,7 +79,8 @@ model = c(
   "NBEATS",
   "NBEATS",
   "NBEATS",
-  "NBEATS"
+  "NBEATS",
+  "NHITS"
 )
 
 # OOS Predictions ----
