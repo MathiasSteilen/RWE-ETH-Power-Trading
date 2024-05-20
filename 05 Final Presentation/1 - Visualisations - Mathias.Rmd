@@ -124,14 +124,285 @@ ggsave(
 )
 ```
 
+### Best Models
+
+
+### Fig 4: Testing Period
+
+CH
+
 ```{r}
-# Read data
+# CH Predictive
+read_csv("../01 Task 1 - Spot Price/1 - LGBM - Prediction - CH - Data Predictive/holdout_predictions.csv") |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(date, value, colour = name)) +
+  geom_line() +
+  labs(title = "OOS Predictions", 
+       y = "Swiss Spot (EUR)", x = "Date",
+       colour = "Type") +
+  scale_colour_manual(values = c("firebrick", "grey50")) +
+  theme(legend.position = "top") +
+  aes(group=rev(name))
 
-# Make chart
+# Save the chart
+ggsave(
+  filename = "07 - CH predictive.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
 
-# Save chart
+read_csv("../01 Task 1 - Spot Price/1 - LGBM - Prediction - CH - Data Predictive/holdout_predictions.csv") |> 
+  mutate(res = actual - .pred) |> 
+  ggplot(aes(.pred, res)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "OOS Residuals", x = "Fitted Value", y = "Residual") +
+  geom_smooth()
+
+# Save the chart
+ggsave(
+  filename = "07 - CH predictive TA.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
 ```
 
+```{r}
+# CH Theoretical
+read_csv("../01 Task 1 - Spot Price/1 - LGBM - Prediction - CH - Data Theoretical/holdout_predictions.csv") |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(date, value, colour = name)) +
+  geom_line() +
+  labs(title = "OOS Predictions", 
+       y = "Swiss Spot (EUR)", x = "Date",
+       colour = "Type") +
+  scale_colour_manual(values = c("firebrick", "grey50")) +
+  theme(legend.position = "top") +
+  aes(group=rev(name))
+
+# Save the chart
+ggsave(
+  filename = "08 - CH theoretical.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+
+read_csv("../01 Task 1 - Spot Price/1 - LGBM - Prediction - CH - Data Theoretical/holdout_predictions.csv") |> 
+  mutate(res = actual - .pred) |> 
+  ggplot(aes(.pred, res)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "OOS Residuals", x = "Fitted Value", y = "Residual") +
+  geom_smooth()
+
+# Save the chart
+ggsave(
+  filename = "08 - CH theoretical TA.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+```
+
+DE
+
+```{r}
+# DE Predictive
+read_csv("../01 Task 1 - Spot Price/1 - LGBM - Prediction - DE - Data Predictive/holdout_predictions.csv") |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(date, value, colour = name)) +
+  geom_line() +
+  labs(title = "OOS Predictions", 
+       y = "German Spot (EUR)", x = "Date",
+       colour = "Type") +
+  scale_colour_manual(values = c("firebrick", "grey50")) +
+  theme(legend.position = "top") +
+  aes(group=rev(name))
+
+# Save the chart
+ggsave(
+  filename = "09 - DE predictive.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+
+read_csv("../01 Task 1 - Spot Price/1 - LGBM - Prediction - DE - Data Predictive/holdout_predictions.csv") |> 
+  mutate(res = actual - .pred) |> 
+  ggplot(aes(.pred, res)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "OOS Residuals", x = "Fitted Value", y = "Residual") +
+  geom_smooth()
+
+# Save the chart
+ggsave(
+  filename = "09 - DE predictive TA.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+```
+
+```{r}
+# DE Theoretical
+read_csv("../01 Task 1 - Spot Price/1 - LGBM - Prediction - DE - Data Theoretical/holdout_predictions.csv") |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(date, value, colour = name)) +
+  geom_line() +
+  labs(title = "OOS Predictions", 
+       y = "German Spot (EUR)", x = "Date",
+       colour = "Type") +
+  scale_colour_manual(values = c("firebrick", "grey50")) +
+  theme(legend.position = "top") +
+  aes(group=rev(name))
+
+# Save the chart
+ggsave(
+  filename = "10 - DE theoretical.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+
+read_csv("../01 Task 1 - Spot Price/1 - LGBM - Prediction - DE - Data Theoretical/holdout_predictions.csv") |> 
+  mutate(res = actual - .pred) |> 
+  ggplot(aes(.pred, res)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "OOS Residuals", x = "Fitted Value", y = "Residual") +
+  geom_smooth()
+
+# Save the chart
+ggsave(
+  filename = "10 - DE theoretical TA.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+```
+
+```{r}
+# CHDE Predictive
+read_csv("../02 Task 2 - Transmission Price/1 - LGBM - Prediction - CHDE - Data Predictive/holdout_predictions.csv") |> 
+  mutate(.pred = ifelse(.pred < 0, 0, .pred)) |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(date, value, colour = name)) +
+  geom_line() +
+  labs(title = "OOS Predictions", 
+       y = "CHDE Tr. Pr. (EUR)", x = "Date",
+       colour = "Type") +
+  scale_colour_manual(values = c("firebrick", "grey50")) +
+  theme(legend.position = "top") +
+  aes(group=rev(name))
+
+# Save the chart
+ggsave(
+  filename = "11 - CHDE predictive.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+
+read_csv("../02 Task 2 - Transmission Price/1 - LGBM - Prediction - CHDE - Data Predictive/holdout_predictions.csv") |> 
+  mutate(res = actual - .pred) |> 
+  ggplot(aes(.pred, res)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "OOS Residuals", x = "Fitted Value", y = "Residual") +
+  geom_smooth()
+
+# Save the chart
+ggsave(
+  filename = "11 - CHDE predictive TA.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+```
+
+```{r}
+# CHDE Theoretical
+read_csv("../02 Task 2 - Transmission Price/1 - fastTS - Prediction - CHDE - Data Theoretical/holdout_predictions.csv") |> 
+  mutate(date = dmy_hm(date)) |> 
+  mutate(.pred = ifelse(.pred < 0, 0, .pred)) |>
+  select(date, .pred, actual) |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(date, value, colour = name)) +
+  geom_line() +
+  labs(title = "OOS Predictions", 
+       y = "CHDE Tr. Pr. (EUR)", x = "Date",
+       colour = "Type") +
+  scale_colour_manual(values = c("firebrick", "grey50")) +
+  theme(legend.position = "top") +
+  aes(group=rev(name))
+
+# Save the chart
+ggsave(
+  filename = "12 - CHDE theoretical.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+
+read_csv("../02 Task 2 - Transmission Price/1 - fastTS - Prediction - CHDE - Data Theoretical/holdout_predictions.csv") |> 
+  mutate(res = actual - .pred) |> 
+  ggplot(aes(.pred, res)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "OOS Residuals", x = "Fitted Value", y = "Residual") +
+  geom_smooth()
+
+# Save the chart
+ggsave(
+  filename = "12 - CHDE theoretical TA.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+```
+
+```{r}
+# DECH Predictive
+read_csv("../02 Task 2 - Transmission Price/1 - LGBM - Prediction - DECH - Data Predictive/holdout_predictions.csv") |> 
+  mutate(.pred = ifelse(.pred < 0, 0, .pred)) |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(date, value, colour = name)) +
+  geom_line() +
+  labs(title = "OOS Predictions", 
+       y = "CHDE Tr. Pr. (EUR)", x = "Date",
+       colour = "Type") +
+  scale_colour_manual(values = c("firebrick", "grey50")) +
+  theme(legend.position = "top") +
+  aes(group=rev(name))
+
+# Save the chart
+ggsave(
+  filename = "13 - DECH predictive.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+
+read_csv("../02 Task 2 - Transmission Price/1 - LGBM - Prediction - DECH - Data Predictive/holdout_predictions.csv") |> 
+  mutate(res = actual - .pred) |> 
+  ggplot(aes(.pred, res)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "OOS Residuals", x = "Fitted Value", y = "Residual") +
+  geom_smooth()
+
+# Save the chart
+ggsave(
+  filename = "13 - DECH predictive TA.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+```
+
+```{r}
+# DECH Theoretical
+read_csv("../02 Task 2 - Transmission Price/1 - LGBM - Prediction - DECH - Data Theoretical/holdout_predictions.csv") |> 
+  mutate(.pred = ifelse(.pred < 0, 0, .pred)) |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(date, value, colour = name)) +
+  geom_line() +
+  labs(title = "OOS Predictions", 
+       y = "CHDE Tr. Pr. (EUR)", x = "Date",
+       colour = "Type") +
+  scale_colour_manual(values = c("firebrick", "grey50")) +
+  theme(legend.position = "top") +
+  aes(group=rev(name))
+
+# Save the chart
+ggsave(
+  filename = "14 - DECH theoretical.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+
+read_csv("../02 Task 2 - Transmission Price/1 - LGBM - Prediction - DECH - Data Theoretical/holdout_predictions.csv") |> 
+  mutate(res = actual - .pred) |> 
+  ggplot(aes(.pred, res)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "OOS Residuals", x = "Fitted Value", y = "Residual") +
+  geom_smooth()
+
+# Save the chart
+ggsave(
+  filename = "14 - DECH theoretical TA.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+
+```
 
 
 ### The Target Variable
