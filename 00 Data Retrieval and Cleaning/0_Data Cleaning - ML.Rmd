@@ -461,3 +461,35 @@ df_predictive = df |>
 df_predictive |> 
   write_csv("0_df_final_ml_predictive.csv")
 ```
+
+### Theoretical
+
+```{r}
+# Start by lagging the correct predictor variables
+df_predictive = df |> 
+  mutate(
+    across(c(
+      day_ahead_price_at,
+      day_ahead_price_fr,
+      day_ahead_price_it,
+      actual_load_at,
+      actual_load_ch,
+      actual_load_de,
+      actual_load_fr,
+      actual_load_it,
+      allocated_capacity_ch_de,
+      allocated_capacity_de_ch                                    
+    ),
+    ~ lag(., n = 24))
+  )
+```
+
+```{r}
+df_predictive |> 
+  write_csv("0_df_final_ml_theoretical.csv")
+```
+
+```{r}
+
+```
+

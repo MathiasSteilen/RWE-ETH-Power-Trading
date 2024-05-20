@@ -39,16 +39,22 @@ import holidays
 
 input_files = [
     "../00 Data Retrieval and Cleaning/0_df_final_ml_predictive.csv",
+    "../00 Data Retrieval and Cleaning/0_df_final_ml_theoretical.csv",
     "../00 Data Retrieval and Cleaning/0_df_final_ml_predictive.csv",
+    "../00 Data Retrieval and Cleaning/0_df_final_ml_theoretical.csv",
 ]
 
 output_folders = [
     "./1 - LGBM - Prediction - CH - Data Predictive/",
+    "./1 - LGBM - Prediction - CH - Data Theoretical/",
     "./1 - LGBM - Prediction - DE - Data Predictive/",
+    "./1 - LGBM - Prediction - DE - Data Theoretical/",
 ]
 
 target_vars = [
     "day_ahead_price_ch",
+    "day_ahead_price_ch",
+    "day_ahead_price_de",
     "day_ahead_price_de",
 ]
 
@@ -64,6 +70,7 @@ for i in range(len(input_files)):
         "day_ahead_price_de",
         "auction_price_ch_de",
         "auction_price_de_ch",
+        
     ]
 
     targets_to_lag = [var for var in targets_to_lag if var != target_vars[i]]

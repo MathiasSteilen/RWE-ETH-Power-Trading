@@ -77,12 +77,26 @@ preds = bind_rows(
       target = "day_ahead_price_ch",
       data_type = "Predictive"
     ),
+  read_csv("../01 Task 1 - Spot Price/1 - LGBM - Prediction - CH - Data Theoretical/holdout_predictions.csv",) |> 
+    transmute(
+      date, .pred, actual,
+      model = "LightGBM",
+      target = "day_ahead_price_ch",
+      data_type = "Theoretical"
+    ),
   read_csv("../01 Task 1 - Spot Price/1 - LGBM - Prediction - DE - Data Predictive/holdout_predictions.csv",) |> 
     transmute(
       date, .pred, actual,
       model = "LightGBM",
       target = "day_ahead_price_de",
       data_type = "Predictive"
+    ),
+  read_csv("../01 Task 1 - Spot Price/1 - LGBM - Prediction - DE - Data Theoretical/holdout_predictions.csv",) |> 
+    transmute(
+      date, .pred, actual,
+      model = "LightGBM",
+      target = "day_ahead_price_de",
+      data_type = "Theoretical"
     ),
   
   # NBEATS  -----------------------------------------
@@ -147,15 +161,15 @@ preds = bind_rows(
 )
 
 ## Metrics ----
-eval_metrics = metric_set(rsq, rmse, mae, rmse)
+eval_metrics = metric_set(rmse, mae, rsq)
 
 preds |> 
   group_by(target, data_type, model) |>
   eval_metrics(truth = actual, estimate = .pred) |> 
   unique() |> 
   select(-c(.estimator)) |> 
-  pivot_wider(names_from = .metric, values_from = .estimate)
-
+  pivot_wider(names_from = .metric, values_from = .estimate) |> 
+  arrange(data_type, target, rmse)
 
 ## Time Series ----
 preds |> 
@@ -164,6 +178,18 @@ preds |>
   geom_line() +
   facet_wrap(~ target + data_type + model, scales = "free", ncol = 4) +
   scale_colour_manual(values = c("firebrick", "grey50"))
+
+preds |> 
+  filter(target == "day_ahead_price_ch") |> 
+  filter(model %in% c("LightGBM", "Baseline")) |> 
+  filter(data_type == "Theoretical") |> 
+  pivot_longer(c(.pred, actual)) |> 
+  ggplot(aes(date, value, colour = name)) +
+  geom_line() +
+  facet_wrap(~ model, scales = "free", ncol = 4) +
+  scale_colour_manual(values = c("firebrick", "grey50"))
+
+
 
 
 ## Tukey Anscombe ----

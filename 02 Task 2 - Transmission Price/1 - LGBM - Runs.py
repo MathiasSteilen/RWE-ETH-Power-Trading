@@ -39,16 +39,22 @@ import holidays
 
 input_files = [
     "../00 Data Retrieval and Cleaning/0_df_final_ml_predictive.csv",
+    "../00 Data Retrieval and Cleaning/0_df_final_ml_theoretical.csv",
     "../00 Data Retrieval and Cleaning/0_df_final_ml_predictive.csv",
+    "../00 Data Retrieval and Cleaning/0_df_final_ml_theoretical.csv",
 ]
 
 output_folders = [
     "./1 - LGBM - Prediction - CHDE - Data Predictive/",
+    "./1 - LGBM - Prediction - CHDE - Data Theoretical/",
     "./1 - LGBM - Prediction - DECH - Data Predictive/",
+    "./1 - LGBM - Prediction - DECH - Data Theoretical/",
 ]
 
 target_vars = [
     "auction_price_ch_de",
+    "auction_price_ch_de",
+    "auction_price_de_ch",
     "auction_price_de_ch",
 ]
 
