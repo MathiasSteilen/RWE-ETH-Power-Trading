@@ -1,0 +1,463 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(ggsci)
+library(scales)
+
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Default theme for charts
+theme_set(
+  theme_bw() +
+    theme(  
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(
+        face = "italic", size = 10, colour = "grey50"
+      )
+    )
+)
+
+```
+
+## The Goal
+
+The goal of this document is to 1) select variables based on availability (missing values) and variance (remove zero-variance) and 2) ensure conversion to the appropriate data type (we have numerical data only, however categories, i.e. integer variables could be represented as factors).
+
+### Combining the two separate files
+
+```{r}
+# Read data - both direction JAO
+data_ch_de = read_csv("../00 Data Retrieval and Cleaning/0_df_final_ch-de_UTC.csv")
+data_de_ch = read_csv("../00 Data Retrieval and Cleaning/0_df_final_de-ch_UTC.csv")
+
+data_ch_de <- data_ch_de %>%
+  rename(auction_price_ch_de = auction_price,
+         allocatedCapacity_ch_de = allocatedCapacity, ATC_ch_de = ATC)
+
+#Initialize df that contain ALL variables
+df <- data_ch_de %>% 
+  mutate(auction_price_de_ch = data_de_ch$auction_price, 
+         allocatedCapacity_de_ch = data_de_ch$allocatedCapacity, 
+         ATC_de_ch = data_de_ch$ATC) %>% 
+  arrange(date)
+
+rm(data_ch_de, data_de_ch)
+```
+
+### Reorder and rename some variables to make it more understandable
+
+```{r}
+reorder_cols = c(
+  "date", "auction_price_ch_de", "auction_price_de_ch", 
+  "allocatedCapacity_ch_de", "allocatedCapacity_de_ch",
+  "ATC_ch_de", "ATC_de_ch", "dst", "day_ahead_price_at", "day_ahead_price_ch",
+  "day_ahead_price_de", "day_ahead_price_fr", "day_ahead_price_it"
+)
+
+df = bind_cols(
+  # Manually reordered columns
+  df |> 
+    select(any_of(reorder_cols)),
+  # Alphabetically reordered columns
+  df |> 
+    select(
+      df |> 
+        select(-any_of(reorder_cols)) |> 
+        colnames() |> 
+        sort()
+    )
+)
+```
+
+### Drop ATC as it is redundant
+
+```{r}
+df |> 
+  select(
+    date,
+    allocatedCapacity_ch_de, allocatedCapacity_de_ch,
+    ATC_ch_de, ATC_de_ch
+  ) |> 
+  pivot_longer(-date) |> 
+  mutate(
+    direction = case_when(
+      name == "allocatedCapacity_ch_de" ~ "ch_de",
+      name == "allocatedCapacity_de_ch" ~ "de_ch",
+      name == "ATC_ch_de" ~ "ch_de",
+      name == "ATC_de_ch" ~ "de_ch",
+    ),
+    name = case_when(
+      name == "allocatedCapacity_ch_de" ~ "allocated",
+      name == "allocatedCapacity_de_ch" ~ "allocated",
+      name == "ATC_ch_de" ~ "ATC",
+      name == "ATC_de_ch" ~ "ATC",
+    ),
+  ) |> 
+  ggplot(aes(date, value, colour = name)) +
+  geom_line(alpha = 0.5) +
+  facet_wrap(~ direction, ncol = 1)
+```
+
+```{r}
+df = df |> 
+  select(-contains("ATC"))
+```
+
+### Removing missing values at the end of the dataframe
+
+Remove the most recent rows that contains NA:
+
+```{r}
+split_date = ymd_hm("2024-01-31 23:00")
+df <- df %>% 
+  filter(date < split_date)
+```
+
+### Saving only the period we agreed on
+
+2023 onwards
+
+```{r}
+df = df |> 
+  filter(year(date) >= 2023)
+```
+
+### Removing zero-variance predictors
+
+Find and remove zero variance variables:
+
+```{r}
+remove_cols = df |> 
+  select(-c(date)) |> 
+  pivot_longer(everything()) |> 
+  group_by(name) |> 
+  summarise(var = var(value, na.rm = T)) |> 
+  ungroup() |> 
+  filter(var < 1e-10) |> 
+  pull(name)
+
+df = df |> 
+  select(!all_of(remove_cols))
+```
+
+### Removing columns that have too many missing values
+
+How many columns have more than x% missing data?
+
+```{r}
+tibble(
+  percentage = seq(0.01, 0.99, by = 0.01),
+  cols = map_dbl(percentage, function(pct){
+    df |> 
+      select(
+        colMeans(is.na(df)) |> 
+          enframe() |>
+          filter(value > pct) |> 
+          pull(name) 
+      ) |> 
+      ncol()
+  })
+) |> 
+  ggplot(aes(percentage, cols)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Number of columns with more than x% missing values",
+       y = "# of cols", x = "Minimum Missing Percentage") +
+  scale_x_continuous(breaks = seq(0, 1, 0.1), 
+                     labels = percent_format())
+
+df |> 
+  is.na() |> 
+  colMeans() |> 
+  enframe() |> 
+  ggplot(aes(value)) +
+  geom_histogram() +
+  labs(title = "Histogram of missingness in covariates",
+       y = "Count of covariates", x = "Missingness") +
+  scale_x_continuous(labels = percent_format())
+```
+
+We decided to limit ourselves to discard columns with more than 60% of missing data:
+
+```{r}
+# Discard the columns with too many missing values (threshold 60%)
+df = df |> 
+  select(-(df |> 
+             is.na() |> 
+             colMeans() |> 
+             enframe() |> 
+             filter(value > 0.6) |> 
+             pull(name)))
+```
+
+### French Pumped Storage
+
+These two columns are not missing at random, they're pumped storage values showing production and consumption, fill the NA values with zero and keep both columns:
+
+```{r}
+df |> 
+  select(hydro_pumped_storage_actual_aggregated_fr,
+         hydro_pumped_storage_actual_consumption_fr) |> 
+  is.na() |> 
+  colMeans()
+
+df |> 
+  select(hydro_pumped_storage_actual_aggregated_fr,
+         hydro_pumped_storage_actual_consumption_fr) |> 
+  mutate(tmp = xor(is.na(hydro_pumped_storage_actual_aggregated_fr),
+                   is.na(hydro_pumped_storage_actual_consumption_fr))) |> 
+  summarise(xor_missing = mean(tmp))
+
+df |> 
+  slice(5200:5300) |> 
+  select(date, 
+         hydro_pumped_storage_actual_aggregated_fr,
+         hydro_pumped_storage_actual_consumption_fr) |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(date, value, colour = name)) +
+  geom_line()
+
+df = df |> 
+  mutate(
+    hydro_pumped_storage_actual_aggregated_fr = ifelse(
+      is.na(hydro_pumped_storage_actual_aggregated_fr),
+      0,
+      hydro_pumped_storage_actual_aggregated_fr
+    ),
+    hydro_pumped_storage_actual_consumption_fr = ifelse(
+      is.na(hydro_pumped_storage_actual_consumption_fr),
+      0,
+      hydro_pumped_storage_actual_consumption_fr
+    )
+  )
+```
+
+Let's visualise the missingness in the rest of the variables:
+
+```{r}
+#df |> 
+#  naniar::vis_miss(warn_large_data = F)
+
+```
+
+### Replace hyphens in column names
+
+```{r}
+df = df |> 
+  janitor::clean_names()
+```
+
+### Interpolating variables that have low frequency
+
+First: Identify columns that have repeating values:
+
+```{r}
+same_as_before = df |> 
+  select(-date, -dst, -contains("dummy"), -contains("cal"),
+         -contains("capacity_forecast"), -contains("crossborder"),
+         -contains("allocated")) |> 
+  mutate(across(everything(), ~ .x == lag(.x))) |> 
+  pivot_longer(everything()) |> 
+  drop_na() |> 
+  group_by(name) |> 
+  summarise(value = mean(value)) 
+
+same_as_before |> 
+  ggplot(aes(value)) +
+  geom_histogram()
+```
+
+Looks like it's mostly hydro reservoir storage. Also, we have an issue with hydro storage having wrong values in Jan 2024. Let's fix these first:
+
+```{r}
+df = df |> 
+  mutate(
+    across(contains("hydro_reservoir_storage"),
+           ~ ifelse(.x == 0, NA, .x))
+  ) 
+
+df |> 
+  select(
+    date,
+    same_as_before |> 
+      filter(value > 0.9) |> 
+      pull(name)
+  ) |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(date, value, linetype = name)) +
+  geom_line() +
+  # facet_wrap(~ name, scales = "free", nrow = 1) +
+  labs(title = "Weekly hydrostorage data", y = "MWh", x = "Date") +
+  theme(legend.title = element_blank())
+```
+
+That looks better. Fill the gaps using forward fill.
+
+Now, let's interpolate these suckers:
+
+```{r}
+df = df |> 
+  fill(contains("hydro_reservoir_storage"), .direction = "down") |> 
+  mutate(
+    across(contains("hydro_reservoir_storage"),
+           ~ runner::runner(.x, mean, k = 24*7))
+  ) 
+
+df |> 
+  select(
+    date,
+    same_as_before |> 
+      filter(value > 0.9) |> 
+      pull(name)
+  ) |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(date, value, linetype = name)) +
+  geom_line() +
+  # facet_wrap(~ name, scales = "free", nrow = 1) +
+  labs(title = "Weekly hydrostorage data after interpolation",
+       y = "MWh", x = "Date") +
+  theme(legend.title = element_blank())
+```
+
+Looks good enough
+
+### Shifting the variables
+
+We have decided on two main approaches for structuring the data:
+
+- theoretical approach: use some actual data that we don't have in practice
+- predictive approach: only use variables that are available at t for predicting t+1
+
+Additionally, we have four different target variables. Create one dataset for each target:
+
+Check for missing values: 
+
+```{r}
+df |> 
+  is.na() |> 
+  colSums() |> 
+  enframe() |> 
+  filter(value > 0) |> 
+  arrange(-value)
+```
+
+```{r}
+reorder_cols = df |> 
+  select(
+    date, contains("auction_price"), contains("allocatedCapacity"),
+    contains("dst"), contains("day_ahead_price")
+  ) |> 
+  colnames()
+
+df = df |> 
+  select(
+    reorder_cols,
+    df |> 
+      select(-any_of(reorder_cols)) |> 
+      colnames() |> 
+      sort()
+  )
+
+df |> glimpse()
+```
+
+```{r}
+df |> colnames()
+```
+
+#### Predictive
+
+```{r}
+# Start by lagging the correct predictor variables
+df_predictive = df |> 
+  mutate(
+    across(c(
+      day_ahead_price_at,                                  
+      day_ahead_price_fr,                                  
+      day_ahead_price_it,                                  
+      actual_load_at,                                      
+      actual_load_ch,                                      
+      actual_load_de,                                      
+      actual_load_fr,                                      
+      actual_load_it,                                      
+      allocated_capacity_ch_de,                            
+      allocated_capacity_de_ch,                            
+      biomass_actual_aggregated_at,                        
+      biomass_actual_aggregated_de,                        
+      biomass_actual_aggregated_fr,                        
+      biomass_actual_aggregated_it,                        
+      fossil_brown_coal_lignite_actual_aggregated_de,      
+      fossil_coal_derived_gas_actual_aggregated_it,        
+      fossil_gas_actual_aggregated_at,                     
+      fossil_gas_actual_aggregated_de,                     
+      fossil_gas_actual_aggregated_fr,                     
+      fossil_gas_actual_aggregated_it,                     
+      fossil_hard_coal_actual_aggregated_de,               
+      fossil_hard_coal_actual_aggregated_fr,               
+      fossil_hard_coal_actual_aggregated_it,               
+      fossil_oil_actual_aggregated_de,                     
+      fossil_oil_actual_aggregated_fr,                     
+      fossil_oil_actual_aggregated_it,                     
+      geothermal_actual_aggregated_de,                     
+      geothermal_actual_aggregated_it,                     
+      hydro_pumped_storage_actual_aggregated_at,           
+      hydro_pumped_storage_actual_aggregated_de,           
+      hydro_pumped_storage_actual_aggregated_fr,           
+      hydro_pumped_storage_actual_aggregated_it,           
+      hydro_pumped_storage_actual_consumption_at,          
+      hydro_pumped_storage_actual_consumption_de,          
+      hydro_pumped_storage_actual_consumption_fr,          
+      hydro_pumped_storage_actual_consumption_it,          
+      hydro_pumped_storage_ch,                             
+      hydro_reservoir_storage_at,                          
+      hydro_reservoir_storage_ch,                          
+      hydro_reservoir_storage_fr,                          
+      hydro_reservoir_storage_it,                          
+      hydro_run_of_river_and_poundage_actual_aggregated_at,
+      hydro_run_of_river_and_poundage_actual_aggregated_de,
+      hydro_run_of_river_and_poundage_actual_aggregated_fr,
+      hydro_run_of_river_and_poundage_actual_aggregated_it,
+      hydro_run_of_river_and_poundage_ch,                  
+      hydro_water_reservoir_actual_aggregated_at,          
+      hydro_water_reservoir_actual_aggregated_de,          
+      hydro_water_reservoir_actual_aggregated_fr,          
+      hydro_water_reservoir_actual_aggregated_it,          
+      hydro_water_reservoir_ch,                            
+      nuclear_actual_aggregated_de,                        
+      nuclear_actual_aggregated_fr,                        
+      nuclear_ch,                                          
+      other_actual_aggregated_de,                          
+      other_actual_aggregated_it,                          
+      other_renewable_actual_aggregated_de,                
+      solar_actual_aggregated_at,                          
+      solar_actual_aggregated_de,                          
+      solar_actual_aggregated_fr,                          
+      solar_actual_aggregated_it,                          
+      solar_ch,                                            
+      waste_actual_aggregated_de,                          
+      waste_actual_aggregated_fr,                          
+      waste_actual_aggregated_it,                          
+      wind_offshore_actual_aggregated_de,                  
+      wind_offshore_actual_aggregated_fr,                  
+      wind_offshore_actual_aggregated_it,                  
+      wind_onshore_actual_aggregated_at,                   
+      wind_onshore_actual_aggregated_de,                   
+      wind_onshore_actual_aggregated_fr,                   
+      wind_onshore_actual_aggregated_it,                   
+      wind_onshore_ch,                                     
+    ),
+    ~ lag(., n = 24))
+  )
+```
+
+```{r}
+df_predictive |> 
+  write_csv("0_df_final_ml_predictive.csv")
+```
