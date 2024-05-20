@@ -529,3 +529,9 @@ get_oos_results <- function(fits, ytest, Xtest) {
   
   oos_results <- rbind("AICc" = oos_results_aic, "BIC" = oos_results_bic)
 }
+
+
+ihs <- function(x) {
+  y <- log(x + sqrt(x^2 + 1))
+  return(y)
+}
