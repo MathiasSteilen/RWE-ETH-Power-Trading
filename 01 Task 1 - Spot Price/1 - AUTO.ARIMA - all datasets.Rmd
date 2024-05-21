@@ -9,10 +9,9 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 
 library(forecast)
-library(ggplot2)
-library(dplyr)
 library(readr)
 library(lubridate)
+library(tidyverse)
 
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 
@@ -27,34 +26,41 @@ theme_set(
     )
 )
 
-source('../02 Task 2 - Transmission Price/builtin_functions.R')
+source('../02 Task 2 - Transmission Price/builtin_functions_old/buitin_functions_full_1.R')
 
 
 ```
 
+# Preparation 
 
-# Functions
+## Set fixed values
+
+```{r}
+n <- 720 # n<- floor(nrow(df_test)/24) * 24
+cut <- as.POSIXct("2023-12-31 23:00:00", tz = "UTC")
+```
+
+## Functions
 
 ```{r}
 # predict one month retraining every day
-predict_24_auto <- function(df, target, cut, regressors, n) {
-    # detect "stairwise" variables (non-hourly data)
-  discontinue_variables <- df %>% 
-    select(where(is.numeric)) %>% 
-    detect_columns_with_consecutive(n_consecutive = 13) %>%
-    select(-c(auction_price_ch_de)
-           ) %>% names()
-  # interpolation 
-  df <- df %>%
-    mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.))) 
+predict_24_auto <- function(df, target, regressors, 
+                            cut = as.POSIXct("2023-12-31 23:00:00", tz = "UTC"),
+                            n = 720) {
+  train <- df %>% filter(date<= cut) %>% select(all_of(target)) %>% as.vector()
+  train<- train[[1]]
+  test <- df %>% filter(date> cut) %>% select(all_of(target))%>% as.vector()
+  test<- test[[1]]
+  xreg_train<- df %>% filter(date<= cut) %>% select(all_of(regressors)) %>% as.matrix()
+  xreg_test <- df %>% filter(date> cut) %>% select(all_of(regressors)) %>% as.matrix()
   
-  train <- df %>% filter(date<= cut) %>% select(target)
-  test <- df %>% filter(date> cut) %>% select(target)
-  xreg_train<- train %>% select(regressors) %>% as.matrix()
-  xreg_test <- test %>% select(regressors) %>% as.matrix()
+  
+  
   prediction <- vector(length = n)          # initialize prediction vec
   first_h <- seq(1, n, by = 24)             # i once every 24
   for (i in first_h) {
+    # if ((i+23) > nrow(xreg_test)) break  # Stop loop if xreg_test doesn't have enough rows
+    
     # fit arima (no drift)
     fit<-auto.arima(train, xreg = xreg_train, allowdrift = FALSE)  
     prediction[i:(23+i)] <- as.vector(
@@ -63,6 +69,7 @@ predict_24_auto <- function(df, target, cut, regressors, n) {
               n.ahead = 24
               )[1]$pred
     )
+    
     # update variables
     train<-c(train, test[i:(23+i)])
     xreg_train<- rbind(xreg_train, xreg_test[i:(i+23),]) %>% as.matrix()
@@ -76,8 +83,8 @@ predict_24_auto <- function(df, target, cut, regressors, n) {
 graph_predicted<- function(df, title) {
   df %>% 
     ggplot(aes(x= date)) +
-    geom_line(aes(y = Actual, colour = "Actual", )) +
-    geom_line(aes(y = Predicted_auto, colour = "Predicted")) +
+    geom_line(aes(y = actual, colour = "Actual", )) +
+    geom_line(aes(y = .pred, colour = "Predicted")) +
     labs(title = title,
          y = "price",
          x = NULL,
@@ -89,6 +96,8 @@ graph_predicted<- function(df, title) {
                                        colour = "grey50"),
           legend.position = "bottom")
 }
+
+
 ```
 
 # Results
@@ -99,13 +108,148 @@ graph_predicted<- function(df, title) {
 
 ```{r}
 
+df <- read.csv("../00 Data Retrieval and Cleaning/0_df_predictive_ch_spot_price.csv") %>% mutate(date = ymd_hms(date))
+regressors = c("day_ahead_price_de", "day_ahead_price_fr", "actual_load_ch", "capacity_forecast_de_lu_ch", "solar_ch" ,"crossborder_actual_flow_fr_ch", "nuclear_ch", "nuclear_actual_aggregated_de")
 
+pred <- predict_24_auto(df, "day_ahead_price_ch", regressors)
 
-df_pred<- data.frame("date"= df_test$date[1:n] , 
-             "Actual" = df_test$auction_price_de_ch[1:n],
-             "Predicted" = pred)
+df_pred_ch_pred<- data.frame("date"= df_test$date[1:n], 
+             ".pred" = pred,
+             "actual" = df_test$day_ahead_price_ch[1:n])
 
+  ggsave(filename="ARIMAX - Predictive - Day Ahead price CH.png", path="../05 Final Presentation/ARIMAX - Predictive - Day Ahead price CH.png",plot = graph_predicted(df_pred_ch_pred, title = "ARIMAX - Predictive - Day Ahead price CH"), width = 8, height =4)
 
-write.csv(df_pred, "../01 Task 1 - Spot Price/")
+write.csv(x = df_pred_ch_pred, file =  "../01 Task 1 - Spot Price/1 - ARIMAX - Prediction - CH - Data Predictive/holdout_predictions.csv")
+
 ```
 
+### DE price
+
+```{r}
+df<- read.csv("../00 Data Retrieval and Cleaning/0_df_predictive_de_spot_price.csv")  %>% mutate(date = ymd_hms(date))
+
+regressors = c("biomass_actual_aggregated_de", "crossborder_actual_flow_de_lu_ch", "day_ahead_price_fr", "actual_load_de", "fossil_gas_actual_aggregated_de" ,"wind_onshore_actual_aggregated_de", "nuclear_actual_aggregated_de", "other_actual_aggregated_de", "solar_forecast_de")
+
+{pred <- predict_24_auto(df, "day_ahead_price_de", regressors)
+df_pred_de_pred<- data.frame("date"= df_test$date[1:n], 
+             ".pred" = pred,
+             "actual" = df_test$day_ahead_price_de[1:n])}
+
+  ggsave(filename="ARIMAX - Predictive - Day Ahead price DE.png", path="../05 Final Presentation/ARIMAX - Predictive - Day Ahead price DE.png",plot = graph_predicted(df_pred_de_pred, title = "ARIMAX - Predictive - Day Ahead price DE"), width = 8, height =4)
+
+write.csv(df_pred_de_pred, "../01 Task 1 - Spot Price/1 - ARIMAX - Prediction - DE - Data Predictive/holdout_predictions.csv")
+```
+
+### DECH price
+
+```{r}
+df <- read.csv("../00 Data Retrieval and Cleaning/0_df_predictive_dech_auction_price.csv") %>% mutate(date = ymd_hms(date))
+
+regressors = c("day_ahead_price_ch", "day_ahead_price_de", "actual_load_ch", 
+               "actual_load_de", "allocated_capacity_de_ch" ,
+               "capacity_forecast_de_lu_ch", "crossborder_actual_flow_de_lu_ch", 
+               "solar_actual_aggregated_de", "nuclear_actual_aggregated_de",
+               "solar_forecast_de")
+
+{pred <- predict_24_auto(df, "auction_price_de_ch", regressors)
+pred[pred < 0] <- 0    # set to zero negative val
+df_pred_dech_pred<- data.frame("date"= df_test$date[1:n], 
+             ".pred" = pred,
+             "actual" = df_test$auction_price_de_ch[1:n])}
+
+
+  ggsave(filename="ARIMAX - Predictive - Auction Price DE-CH.png", path="../05 Final Presentation/ARIMAX - Predictive - Auction Price DE-CH.png",plot = graph_predicted(df_pred_dech_pred, title = "ARIMAX - Predictive - Auction Price DE-CH"), width = 8, height =4)
+
+write.csv(df_pred_dech_pred, "../02 Task 2 - Transmission Price/1 - ARIMAX - Prediction - DECH - Data Predictive/holdout_predictions.csv")
+```
+
+### CHDE price
+
+```{r}
+df <- read.csv("../00 Data Retrieval and Cleaning/0_df_predictive_chde_auction_price.csv") %>% mutate(date = ymd_hms(date))
+
+regressors = c("day_ahead_price_ch", "day_ahead_price_de", "actual_load_ch", "actual_load_de", "allocated_capacity_ch_de" ,"capacity_forecast_ch_de_lu", "crossborder_actual_flow_ch_de_lu", "solar_actual_aggregated_de", "nuclear_actual_aggregated_de", "solar_forecast_de")
+
+{pred <- predict_24_auto(df, "auction_price_ch_de", regressors)
+pred[pred < 0] <- 0    # set to zero negative val
+df_pred_chde_pred<- data.frame("date"= df_test$date[1:n], 
+             ".pred" = pred,
+             "actual" = df_test$auction_price_ch_de[1:n])}
+
+  ggsave(filename="ARIMAX - Predictive - Auction Price CH-DE.png", path="../05 Final Presentation/ARIMAX - Predictive - Auction Price CH-DE.png",plot = graph_predicted(df_pred_chde_pred, title = "ARIMAX - Predictive - Auction Price CH - DE"), width = 8, height =4)
+
+write.csv(df_pred_chde_pred, "../02 Task 2 - Transmission Price/1 - ARIMAX - Prediction - CHDE - Data Predictive/holdout_predictions.csv")
+```
+
+
+## Theoretical
+
+### CH price
+
+```{r}
+df <- read.csv("../00 Data Retrieval and Cleaning/0_df_theoretical_ch_spot_price.csv") %>% mutate(date = ymd_hms(date))
+
+regressors = c("day_ahead_price_de", "day_ahead_price_fr", "actual_load_ch", "capacity_forecast_de_lu_ch", "solar_ch" ,"crossborder_actual_flow_fr_ch", "nuclear_ch", "nuclear_actual_aggregated_de")
+
+{pred <- predict_24_auto(df, "day_ahead_price_ch", regressors)
+df_pred_ch_theo<- data.frame("date"= df_test$date[1:n], 
+             ".pred" = pred,
+             "actual" = df_test$day_ahead_price_ch[1:n])}
+
+  ggsave(filename="ARIMAX - Theoretical - Day Ahead price CH.png", path="../05 Final Presentation/ARIMAX - Theoretical - Day Ahead price CH.png",plot = graph_predicted(df_pred_ch_theo, title = "ARIMAX - Theoretical - Day Ahead price CH"), width = 8, height =4)
+
+write.csv(df_pred_ch_theo, "../01 Task 1 - Spot Price/1 - ARIMAX - Prediction - CH - Data Theoretical/holdout_predictions.csv")
+
+
+```
+
+### DE price
+
+```{r}
+df <- read.csv("../00 Data Retrieval and Cleaning/0_df_theoretical_ch_spot_price.csv") %>% mutate(date = ymd_hms(date))
+
+regressors = c("biomass_actual_aggregated_de", "crossborder_actual_flow_de_lu_ch", "day_ahead_price_fr", "actual_load_de", "fossil_gas_actual_aggregated_de" ,"wind_onshore_actual_aggregated_de", "nuclear_actual_aggregated_de", "other_actual_aggregated_de", "solar_actual_aggregated_de")
+
+{pred <- predict_24_auto(df, "day_ahead_price_de", regressors)
+df_pred_de_theo<- data.frame("date"= df_test$date[1:n], 
+             ".pred" = pred,
+             "actual" = df_test$day_ahead_price_de[1:n])}
+
+  ggsave(filename="ARIMAX - Theoretical - Day Ahead price DE.png", path="../05 Final Presentation/ARIMAX - Theoretical - Day Ahead price DE.png",plot = graph_predicted(df_pred_ch_theo, title = "ARIMAX - Theoretical - Day Ahead price DE"), width = 8, height =4)
+
+write.csv(df_pred_de_theo, "../01 Task 1 - Spot Price/1 - ARIMAX - Prediction - DE - Data Theoretical/holdout_predictions.csv")
+```
+
+### DECH price
+
+```{r}
+df <- read.csv("../00 Data Retrieval and Cleaning/0_df_theoretical_dech_auction_price.csv")%>% mutate(date = ymd_hms(date))
+
+
+regressors = c("biomass_actual_aggregated_de", "crossborder_actual_flow_de_lu_ch", "day_ahead_price_fr", "actual_load_de", "fossil_gas_actual_aggregated_de" ,"wind_onshore_actual_aggregated_de", "nuclear_actual_aggregated_de", "other_actual_aggregated_de", "solar_actual_aggregated_de")
+
+{pred <- predict_24_auto(df, "auction_price_de_ch", regressors)
+pred[pred < 0] <- 0    # set to zero negative val
+df_pred_dech_theo<- data.frame("date"= df_test$date[1:n], 
+             ".pred" = pred,
+             "actual" = df_test$auction_price_de_ch[1:n])}
+
+write.csv(df_pred_dech_theo, "../02 Task 2 - Transmission Price/1 - ARIMAX - Prediction - DECH - Data Theoretical/holdout_predictions.csv")
+```
+
+### CHDE price
+
+```{r}
+df <- read.csv("../00 Data Retrieval and Cleaning/0_df_theoretical_chde_auction_price.csv")%>% mutate(date = ymd_hms(date))
+
+
+regressors = c("day_ahead_price_ch", "day_ahead_price_de", "actual_load_ch", "actual_load_de", "allocated_capacity_ch_de" ,"capacity_forecast_ch_de_lu", "crossborder_actual_flow_ch_de_lu", "solar_actual_aggregated_de", "nuclear_actual_aggregated_de", "solar_actual_aggregated_de")
+
+{pred <- predict_24_auto(df, "auction_price_ch_de", regressors)
+pred[pred < 0] <- 0     # set to zero negative val
+df_pred_chde_theo<- data.frame("date"= df_test$date[1:n], 
+             ".pred" = pred,
+             "actual" = df_test$auction_price_ch_de[1:n])}
+
+write.csv(df_pred_chde_theo, "../02 Task 2 - Transmission Price/1 - ARIMAX - Prediction - CHDE - Data Theoretical/holdout_predictions.csv")
+```
