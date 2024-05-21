@@ -10,21 +10,531 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ## R Markdown
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(lubridate)
 
-```{r cars}
-summary(cars)
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Default theme for charts
+theme_set(
+  theme_bw() +
+    theme(  
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(
+        face = "italic", size = 10, colour = "green50"
+      )
+    )
+)
+
+```
+
+
+# dataset A
+
+## Prepare data
+
+### read and adjust df
+
+```{r, warning=FALSE, echo=FALSE}
+df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_a.csv")
+
+#drop ATC (both ways) to avoid multicollinearity (since it is almost the same as allocatedCapacity) 
+df <- df %>% select(-contains("ATC_"))
+
+df <- df %>% 
+  mutate(date = with_tz(date, tzone = "UTC")) %>%
+  mutate_at(vars(-date), as.numeric)
+
+dummies_columns <- df %>%
+  select(contains("_missing_dummy")) %>% 
+  colnames()
+
+factor_colums <- c('dst', dummies_columns)
+
+df <- df %>%
+  mutate_at(vars(factor_colums), factor)
+```
+```{r, warning=FALSE, echo=FALSE}
+df_CHDE <- read_csv("../00 Data Retrieval and Cleaning/Statlab_shared/
+                    0_df_final_imputed_shifting_a_ch_de.csv") %>% 
+  mutate(date = with_tz(date, tzone = "UTC")) %>%
+  mutate_at(vars(-date), as.numeric)
+
+df_DECH <- read_csv("../00 Data Retrieval and  Cleaning/Statlab_shared/
+                    0_df_final_imputed_shifting_a_de_ch.csv") %>% 
+  mutate(date = with_tz(date, tzone = "UTC")) %>%
+  mutate_at(vars(-date), as.numeric)
+
+df_CH <- read_csv("../00 Data Retrieval and Cleaning/Statlab_shared/
+                  0_df_final_imputed_shifting_a_ch.csv") %>% 
+  mutate(date = with_tz(date, tzone = "UTC")) %>%
+  mutate_at(vars(-date), as.numeric)
+
+df_DE <- read_csv("../00 Data Retrieval and Cleaning/Statlab_shared/
+                  0_df_final_imputed_shifting_a_de.csv") %>% 
+  mutate(date = with_tz(date, tzone = "UTC")) %>%
+  mutate_at(vars(-date), as.numeric)
+
+```
+
+
+### Cutting of time series 
+
+The timestamps are selected arbitrarily. The guiding idea behind the choice was to roughly recover some stationarity conditions in the log-transformed price.
+```{r}
+first_cut <- as.POSIXct("2021-06-30 23:00:00", tz = "UTC")
+second_cut <- as.POSIXct("2022-12-31 23:00:00", tz = "UTC")
+exp_cut <- as.POSIXct("2023-09-30 23:00:00", tz = "UTC")
+
+```
+
+### Transformation functions
+
+```{r}
+boxcox_transform <- function(x, lambda) {
+  y = x - min(x) + 1
+  if (lambda == 0) {
+    log(y)
+  } else {
+    (y^lambda - 1) / lambda
+  }
+}
+
+atanh <- function(x) {
+  return(  
+    0.5 * log((1 + x) / (1 - x))
+  )
+}
+
+ihs <- function(x) {
+  y <- log(x + sqrt(x^2 + 1))
+  return(y)
+}
+
+mir_log <- function(x) {
+  sign_x <- sign(x)
+  abs_x <- abs(x)
+  y <- sign_x * abs_x^(1/10)
+  return(y)
+}
+
+mir_pow1to4 <- function(x) {
+  sign_x <- sign(x)
+  abs_x <- abs(x)
+  y <- sign_x * abs_x^(1/4)
+  return(y)
+}
+
+
+```
+
+### Apply transformation functions
+
+```{r}
+prices_name <- c('day_ahead_price_de', 
+                 'day_ahead_price_ch',
+                 'day_ahead_price_it',
+                 'day_ahead_price_fr',
+                 'day_ahead_price_at',
+                 'auction_price_ch_de',
+                 'auction_price_de_ch')
+
+df_ihs <- df %>%
+  mutate_at(vars(all_of(prices_name)), ~ ihs(.))
+df_mir_log <- df %>% 
+  mutate_at(vars(all_of(prices_name)),~ mir_log(.))
+
+df_mir_pow1to4 <- df %>% 
+  mutate_at(vars(all_of(prices_name)), ~ mir_pow1to4(.))
+
+
+filter(df, date> second_cut)$auction_price_de_ch %>% boxcox_transform(lambda = 0) %>% plot()
+
+```
+
+### Stationarity
+```{r}
+ggplot(df ,aes(x = date)) +
+  geom_line(aes(y = day_ahead_price_de, color = "day_ahead_price_de")) +
+  geom_line(aes(y = day_ahead_price_ch, color = "day_ahead_price_ch")) +
+  labs(title = "Prices First Period",
+       x = "Hourly data",
+       y = "Price day ahead",
+       color = "Day ahead prices") +
+  scale_color_manual(values = c("day_ahead_price_de" = "green", "day_ahead_price_ch" = "red"))+
+  theme(plot.margin = margin(10, 10, 10, 10), legend.position = "bottom")
+
+```
+
+## Inference
+
+### auction CH_DE
+
+```{r}
+
+df_CHDE<- df %>% filter(date > second_cut) %>% filter(auction_price_ch_de != 0)
+
+plot(log(0+df_CHDE$auction_price_ch_de))
+
+
+
+```
+
+The log transformation preads the data quite evenly on the space, in c(-4,4). Problems arise with lower data, there are levels for which multiple observations have the same values (corresponding to 0.1, 0.2, 0.3, ... in data on levels). This unfortunately is not easy to change because no simple transformation can deal with multiple observations with the same value). Thus we will use this transformation in the rest of the analysis.
+
+#### Model building
+
+##### Logistic --> ARIMAX
+
+In this section we will perform a two steps approach:
+
+1. Fit a logistic regression (with all possible xreg and seasonality) using to predict (auction_price_ch_de == 0)
+
+2. Fit an ARIMA with exogenous variables (all possible xreg and seasonality) on (auction_price_ch_de != 0)
+
+-> Combine the two approaches to create predictions where first the logistic regression is applied and predict == 0 where the model predicts it and follows the ARIMA where the model predict !=0
+
+```{r}
+
+
+# shift all the unshifted variables (apart from target) and add shifted target 
+# to capture 24h autointeraction
+df4_p3 <- df %>% 
+  mutate(
+    # auction_price_ch_de_shifted = lag(auction_price_ch_de, n=24) %>%log(),
+    # auction_price_de_ch_shifted = lag(auction_price_de_ch, n=24),
+    # day_ahead_price_ch_shifted = lag(day_ahead_price_ch, n = 24),
+    # day_ahead_price_de_shifted = lag(day_ahead_price_de, n=24),
+    # auction_price_ch_de= lag(auction_price_ch_de, n=24),
+    auction_price_de_ch = lag(auction_price_de_ch, n=24),
+    day_ahead_price_ch = lag(day_ahead_price_ch, n = 24),
+    day_ahead_price_de= lag(day_ahead_price_de, n=24),
+    day_ahead_price_it = lag(day_ahead_price_it, n=24),
+    day_ahead_price_fr = lag(day_ahead_price_fr, n=24),
+    day_ahead_price_at = lag(day_ahead_price_at, n=24),
+    allocatedCapacity_ch_de = lag(allocatedCapacity_ch_de, n=24),
+    allocatedCapacity_de_ch = lag(allocatedCapacity_de_ch, n=24)
+)%>% filter(date > second_cut)
+
+
+# Binary outcome (1 for zeros, 0 for non-zeros)
+df_class_CH_DE <- df4_p3
+df_class_CH_DE$auction_price_ch_de<- as.integer(df_class_CH_DE$auction_price_ch_de == 0)  
+
+# Fit logistic regression model
+# Example: Fit logistic regression model
+logistic_CH_DE <- glm(auction_price_ch_de ~ . , data = df_class_CH_DE, family = binomial)
+
+# Predictions
+predicted_prob <- predict(logistic_CH_DE, type = "response")
+predicted_binary <- ifelse(predicted_prob > 0.5, 1, 0)  # Binary predictions based on threshold of 0.5
+
+# Convert actual values to binary
+actual_binary <- ifelse(df_class_CH_DE$auction_price_ch_de > 0, 1, 0)  # Assuming 0 is the threshold for one class
+
+# Confusion matrix
+conf_matrix <- table(Actual = actual_binary, Predicted = predicted_binary)
+print("Confusion Matrix:")
+print(conf_matrix)
+
+# Calculate accuracy
+accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+print(paste("Accuracy:", accuracy))
+
+```
+The results of the logistic regression are relatively satisfactory, thus we use it for the next steps.
+
+```{r}
+
+xreg_all <- xreg_all_dataA_p3_auctionCHDE<- df4_p3 %>% 
+  # filter(df4_p3$auction_price_ch_de!= 0) %>% 
+  select(-c("dst", "fossil_hard_coal_actual_aggregated_at", "date", contains("missing_dummy"), contains("cal"), "cal_month","cal_quarter", "cal_year"))
+
+df_CHDE_3<-df_CHDE   %>%  filter(date > exp_cut) 
+df_CHDE_3<- df_CHDE_3 %>%  mutate(auction_price_ch_de = boxcox_transform(
+  df_CHDE_3$auction_price_ch_de, lambda = 0)) %>% 
+  select(-c("date", contains("cal"), "fossil_hard_coal_actual_aggregated_at",
+            "nuclear_actual_aggregated_de"))
+ 
+
+plot(log(xreg_all$auction_price_ch_de))
+fit<- fit_dataA_p3_auctionCHDE <- arima(x = df_CHDE_3$auction_price_ch_de, order = c(2,0,2), xreg = as.matrix(select(df_CHDE_3, -"auction_price_ch_de")),
+           seasonal = list(order= c(24,0,0))
+           )
+
+fit_dataA_p_CHDE<- fit<-forecast::Arima(y = xreg_all$auction_price_ch_de, 
+                    order = c(10,0,4), 
+                    lambda = "auto",
+                    xreg = as.matrix(select(xreg_all, -"auction_price_ch_de")))
+
+
+
+```
+
+```{r}
+
+
+
+```
+
+#### Residuals diagnostics
+```{r}
+
+# time plot 
+plot(fit$residuals)
+
+# qqplot normality
+qqnorm(fit_dataA_p3_auctionCHDE$residuals)
+qqline(fit_dataA_p3_auctionCHDE$residuals, col = "red")
+
+# plot autocorrelation
+acf(fit_dataA_p3_auctionCHDE$residuals)
+
+```
+
+
+
+### CH day ahead price
+
+#### Model building
+
+```{r}
+# shift all the unshifted variables (apart from target) and add shifted target 
+# to capture 24h autointeraction
+df1_p3 <- df %>% 
+  mutate(
+    # auction_price_ch_de_shifted = lag(auction_price_ch_de, n=24),
+    # auction_price_de_ch_shifted = lag(auction_price_de_ch, n=24),
+    day_ahead_price_ch_shifted = lag(day_ahead_price_ch, n = 24),
+    # day_ahead_price_de_shifted = lag(day_ahead_price_de, n=24),
+    auction_price_ch_de= lag(auction_price_ch_de, n=24),
+    auction_price_de_ch = lag(auction_price_de_ch, n=24),
+    # day_ahead_price_ch = lag(day_ahead_price_ch, n = 24),
+    day_ahead_price_de= lag(day_ahead_price_de, n=24),
+    day_ahead_price_it = lag(day_ahead_price_it, n=24),
+    day_ahead_price_fr = lag(day_ahead_price_fr, n=24),
+    day_ahead_price_at = lag(day_ahead_price_at, n=24),
+    allocatedCapacity_ch_de = lag(allocatedCapacity_ch_de, n=24),
+    allocatedCapacity_de_ch = lag(allocatedCapacity_de_ch, n=24)
+)%>% filter(date > second_cut)
+
+# Create dummy variable for negative values
+df1_p3$negative_day_ahead_price_ch_dummy <- as.integer(df1_p3$day_ahead_price_ch < 0)
+
+
+xreg_all <- xreg_dataA_p3_priceCH <- df1_p3 %>% select(-c( "day_ahead_price_ch","dst","cal_year", "cal_month", "cal_quarter", "fossil_hard_coal_actual_aggregated_at", "date", contains("missing_dummy")))
+
+str(xreg_dataA_p3_priceCH)
+
+# xreg_all %>% names()
+
+ # fit_dataA_p3_priceCH<- fit<- arima(x = df1_p3$day_ahead_price_ch, 
+ #           order = c(10,0,4),
+ #           xreg = xreg_dataA_p3_priceCH, seasonal = 
+ #          )
+
+fit<-forecast::Arima(y = xreg_dataA_p3_priceCH$day_ahead_price_ch, order = c(10,0,4), 
+                     xreg = as.matrix(select(xreg_all, -"day_ahead_price_ch")),
+                     lambda="auto"
+                     )
+
+df1 <- df %>% mutate(diff_price = day_ahead_price_ch - day_ahead_price_de)
+
+df1$diff_price[38000:length(df1$diff_price)]%>% 
+  boxcox_transform(lambda=0) %>%
+  plot()
+
+```
+
+#### Residuals diagnostics
+```{r}
+plot(filter(df, date > second_cut)$day_ahead_price_ch)
+plot(df1_p3$day_ahead_price_ch)
+plot(fit_dataA_p3_priceCH$residuals)
+
+
+filter(df, date > second_cut, df$day_ahead_price_ch < 0)$day_ahead_price_ch
+
+qqnorm(fit_dataA_p3_priceCH$residuals)
+qqline(fit_dataA_p3_priceCH$residuals, col = "red")
+
+
+# shapiro.test() does not work for datasets >5000, thus use Anderson-Darling test
+nortest::ad.test(fit_dataA_p3_priceCH$residuals) # reject null of normality
+
+acf(fit_dataA_p3_priceCH$residuals)
+
+
+
+
+plot(fit)
+plot(fit$residuals)
+plot(fit$residuals, ylim = c(-0.5,0.5))
+resid
+
+qqnorm(fit$residuals,
+       # ylim = c(-0.5,0.5)
+       )
+qqline(fit$residuals, col = "red")
+
+nortest::ad.test(fit_dataA_p3_priceDE$residuals) # reject null of normality
+
+
+# plot autocorrelation
+acf(fit$residuals)
+
 ```
 
 ## Including Plots
+### DE day ahead price
 
 You can also embed plots, for example:
+#### Model building
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r}
+
+df2_p3 <- df %>% 
+  mutate(
+    # auction_price_ch_de_shifted = lag(auction_price_ch_de, n=24),
+    # auction_price_de_ch_shifted = lag(auction_price_de_ch, n=24),
+    # day_ahead_price_ch_shifted = lag(day_ahead_price_ch, n = 24),
+    day_ahead_price_de_shifted = lag(day_ahead_price_de, n=24),
+    auction_price_ch_de= lag(auction_price_ch_de, n=24),
+    auction_price_de_ch = lag(auction_price_de_ch, n=24),
+    day_ahead_price_ch = lag(day_ahead_price_ch, n = 24),
+    # day_ahead_price_de= lag(day_ahead_price_de, n=24),
+    day_ahead_price_it = lag(day_ahead_price_it, n=24),
+    day_ahead_price_fr = lag(day_ahead_price_fr, n=24),
+    day_ahead_price_at = lag(day_ahead_price_at, n=24),
+    allocatedCapacity_ch_de = lag(allocatedCapacity_ch_de, n=24),
+    allocatedCapacity_de_ch = lag(allocatedCapacity_de_ch, n=24)
+)%>% filter(date > second_cut)
+
+xreg_all <- xreg_dataA_p3_priceDE <- df2_p3 %>% 
+  select(-c("day_ahead_price_de", "dst", "cal_year",  "cal_month", "cal_quarter", "fossil_hard_coal_actual_aggregated_at", "date", contains("missing_dummy")))
+
+
+fit<- fit_dataA_p3_priceDE <- arima(x = df2_p3$day_ahead_price_de, 
+           order = c(10,0,4),
+           xreg = xreg_dataA_p3_priceDE
+           )
+
+fit<-forecast::Arima(y = xreg_all$auction_price_ch_de, order = c(10,0,4), 
+                     xreg = as.matrix(select(xreg_all, -"auction_price_ch_de")))
+```
+
+#### Residuals diagnostics
+```{r}
+
+plot(fit$residuals)
+
+qqnorm(fit$residuals)
+qqline(fit$residuals, col = "red")
+
+nortest::ad.test(fit_dataA_p3_priceDE$residuals) # reject null of normality
+
+
+# plot autocorrelation
+acf(fit$residuals)
+```
+
+### auction price DE-CH
+
+#### Model building
+
+```{r}
+
+df3_p3 <- df %>% 
+  mutate(
+    # auction_price_ch_de_shifted = lag(auction_price_ch_de, n=24),
+    # auction_price_de_ch_shifted = lag(auction_price_de_ch, n=24),
+    # day_ahead_price_ch_shifted = lag(day_ahead_price_ch, n = 24),
+    # day_ahead_price_de_shifted = lag(day_ahead_price_de, n=24),
+    auction_price_ch_de= lag(auction_price_ch_de, n=24),
+    # auction_price_de_ch = lag(auction_price_de_ch, n=24),
+    day_ahead_price_ch = lag(day_ahead_price_ch, n = 24),
+    day_ahead_price_de= lag(day_ahead_price_de, n=24),
+    day_ahead_price_it = lag(day_ahead_price_it, n=24),
+    day_ahead_price_fr = lag(day_ahead_price_fr, n=24),
+    day_ahead_price_at = lag(day_ahead_price_at, n=24),
+    allocatedCapacity_ch_de = lag(allocatedCapacity_ch_de, n=24),
+    allocatedCapacity_de_ch = lag(allocatedCapacity_de_ch, n=24)
+)%>% filter(date > second_cut)
+
+xreg_all <- xreg_dataA_p3_auctionDECH <- df3_p3 %>% select(-c("auction_price_de_ch", "dst", "fossil_hard_coal_actual_aggregated_at", "date", contains("missing_dummy"), "cal_month", "cal_quarter", "cal_year"))
+
+high_correlations <- cor(xreg_all)[cor(xreg_all) > 0.9]
+
+
+
+fit <- arima(x = boxcox_transform(df3_p3$auction_price_de_ch, 0), 
+             order = c(3, 0, 4),
+             seasonal = list(order = c(0, 1, 1), period = 12),
+             xreg = xreg_dataA_p3_auctionDECH
+)
+
+fit<-forecast::Arima(y = xreg_all$auction_price_ch_de, order = c(10,0,4), 
+                     xreg = as.matrix(select(xreg_all, -"auction_price_ch_de")))
+
 ```
 
 Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+#### Residuals diagnostics
+```{r}
+
+# time plot 
+plot(fit$residuals)
+
+# qqplot normality
+{qqnorm(fit$residuals)
+qqline(fit$residuals, col = "red")}
+
+# plot autocorrelation
+acf(fit$residuals)
+
+```
+
+
+### auction price CH-DE
+
+#### Model building
+
+
+# Prediction
+
+```{r}
+
+# fore <- predict(fit_dataA_p3_priceCH, newxreg = xreg_dataA_p3_priceCH[(6651+1):(6651+24),], n.ahead = 24)[1]
+
+
+cv <- function(fit, newxreg, target){
+  mse <- vector(length = 118)
+  start <- 6652
+
+  for (i in 1:118){
+    mse[i] <- mean((predict(fit, 
+           newxreg = newxreg[1:(start+23),],n.ahead = 24)[1]$pred
+           - target[(start):(start+23)])^2)
+    start <- start+24
+  }
+  MSE <- mean(mse)
+  RMSE <- sqrt(mean(mse))
+  return(sqrt(mean(mse)))
+}
+
+
+cv(fit = fit_dataA_p3_priceCH, newxreg = xreg_dataA_p3_priceCH, target = df1_p3$day_ahead_price_ch)
+cv(fit = fit_dataA_p3_priceDE, newxreg = xreg_dataA_p3_priceDE, target = df2_p3$day_ahead_price_de)
+cv(fit = fit_dataA_p3_auctionCHDE, newxreg = xreg_dataA_p3_auctionCHDE, target = df3_p3$auction_price_ch_de)
+cv(fit = fit_dataA_p3_auctionDECH, newxreg = xreg_dataA_p3_auctionDECH, target = df4_p3$auction_price_de_ch)
+
+
+# mse <- mean((fore$pred - df1_p3$day_ahead_price_ch[(6651+1):(6651+24)])^2)
+
+```

@@ -1,0 +1,161 @@
+---
+title: "1 - ARIMAX/logistic - CHDE"
+author: "Tito Quadri"
+date: "2024-05-14"
+output: html_document
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(forecast)
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(lubridate)
+
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Default theme for charts
+theme_set(
+  theme_bw() +
+    theme(  
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(
+        face = "italic", size = 10, colour = "green50"
+      )
+    )
+)
+
+```
+
+# Data loading
+
+Create the overall dataset (`df`), 
+
+```{r}
+timecut <- as.POSIXct("2022-12-31 00:00:00", tz = "UTC")
+testcut <- as.POSIXct("2023-12-31 00:00:00", tz = "UTC")
+
+  df <- read_csv("../00 Data Retrieval and Cleaning/Statlab_shared/0_df_final_imputed_shifting_a_ch_de.csv") %>% 
+  mutate(date = with_tz(date, tzone = "UTC")) %>%
+  mutate_at(vars(-date), as.numeric) %>%  filter(date > timecut)
+
+```
+## Data cleaning
+
+clean the data for the period at hand:
+
+remove variables with zero variance (constants)
+
+```{r}
+# detect variables with zero variance
+variances = df %>%  
+  select(-c(date)) %>%  
+  mutate_all(as.numeric) %>%
+  apply(2, var)
+
+null_variance_cols <- names(variances[variances == 0])
+
+df<- df %>% select(-all_of(null_variance_cols))
+```
+
+Remove variables that are perfectly multicollinear (detected by NA coefficients in a multiple linear regression including all regressors)
+
+```{r}
+df<- df %>% select(-contains("dst1"))
+  
+lm_model <- lm(auction_price_ch_de ~ ., data = df)
+
+# Get coefficients and drop variables with NA coefficients
+na_vars <- names(coef(lm_model)[is.na(coef(lm_model))])
+
+
+df <- df %>% select(-na_vars)
+
+```
+
+
+```{r}
+df_test <- df %>% filter(date > testcut)
+df_train <- df %>% filter(date < testcut)
+
+# Binary outcome (1 for zeros, 0 for non-zeros)
+df_class_CH_DE <- df_train
+df_class_CH_DE$auction_price_ch_de<- as.integer(df_class_CH_DE$auction_price_ch_de == 0)  
+
+logistic_CH_DE <- glm(auction_price_ch_de ~ . , data = df_class_CH_DE, family = binomial)
+
+predicted_prob <- predict(logistic_CH_DE, type = "response")
+predicted_binary <- ifelse(predicted_prob > 0.5, 1, 0)
+
+actual_binary <- ifelse(df_class_CH_DE$auction_price_ch_de > 0, 1, 0)  
+
+# Confusion matrix
+conf_matrix <- table(Actual = actual_binary, Predicted = predicted_binary)
+print("Confusion Matrix:")
+print(conf_matrix)
+
+accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+print(paste("Accuracy:", accuracy))
+```
+
+
+
+
+```{r}
+
+lmCHDE_train <- lm(boxcox_transform(auction_price_ch_de) ~ ., data= df_train )
+
+autoCHDE<-auto.arima(lmCHDE_train$residuals, 
+           # xreg = as.matrix(select(df_train, -c("day_ahead_price_ch", "date"))),
+           d = 0,
+           D = 0
+           )
+# results in ARIMA(2,0,3)
+
+# fit_train <- forecast::Arima(y = boxcox_transform(df_train$auction_price_ch_de),
+#                     order = c(2,0,3),
+#                     # lambda = "auto",
+#                     xreg = as.matrix(select(df_train, -c("auction_price_ch_de", "date")))
+#                     )
+
+dataA_p3_auctionCHDE<- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_a.csv") %>% 
+  select(-c("dst", "fossil_hard_coal_actual_aggregated_at", "date", contains("missing_dummy"), contains("cal"), "cal_month","cal_quarter", "cal_year","g2_dummy", "g3_dummy"))
+
+df_train_CHDE<- df_train %>% select(names(dataA_p3_auctionCHDE))
+
+autoCHDE<-auto.arima(lmCHDE_train$residuals, 
+           # xreg = as.matrix(select(df_train, -c("day_ahead_price_ch", "date"))),
+           d = 0,
+           D = 0
+           )
+
+fit_train <- forecast::Arima(y = (df_train$auction_price_ch_de),
+                    order = c(3,0,1),
+                    # lambda = "auto",
+                    xreg = as.matrix(select(df_train_CHDE, -c("auction_price_ch_de"))),
+                    optim.control = ctrl
+                    )
+# -> tune the optimization (to stop earlier and do not converge precisely). numerical problems mean that the model is not appropriate. 
+#.. verbose = true, show steps, change accuracy.
+
+acf(fit_dataA_p3_auctionCHDE$residuals)
+pacf(fit_dataA_p3_auctionCHDE$residuals)
+plot(fit_dataA_p3_auctionCHDE$residuals)
+
+{qqnorm(fit_dataA_p3_auctionCHDE$residuals)
+qqline(fit_dataA_p3_auctionCHDE$residuals)}
+
+```
+
+
+
+
+

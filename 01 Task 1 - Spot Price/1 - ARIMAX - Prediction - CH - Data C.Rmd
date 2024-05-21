@@ -1,0 +1,351 @@
+---
+title: "ARIMAX2_priceCH"
+author: "Tito Quadri"
+date: "2024-05-13"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(forecast)
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(lubridate)
+
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Default theme for charts
+theme_set(
+  theme_bw() +
+    theme(  
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(
+        face = "italic", size = 10, colour = "green50"
+      )
+    )
+)
+
+```
+
+# Data loading
+
+Create the overall dataset (`df`), 
+
+```{r}
+timecut <- as.POSIXct("2022-12-31 00:00:00", tz = "UTC")
+testcut <- as.POSIXct("2023-12-31 00:00:00", tz = "UTC")
+
+df <- read_csv("../00 Data Retrieval and Cleaning/Statlab_shared/") %>% 
+  mutate(date = with_tz(date, tzone = "UTC")) %>%
+  mutate_at(vars(-date), as.numeric) %>%  filter(date > timecut)
+
+```
+## Data cleaning
+
+clean the data for the period at hand:
+
+remove variables with zero variance (constants)
+
+```{r}
+# detect variables with zero variance
+variances = df %>%  
+  select(-c(date)) %>%  
+  mutate_all(as.numeric) %>%
+  apply(2, var)
+
+null_variance_cols <- names(variances[variances == 0])
+
+df<- df %>% select(-all_of(null_variance_cols))
+```
+
+Remove variables that are perfectly multicollinear (detected by NA coefficients in a multiple linear regression including all regressors)
+
+```{r}
+df<- df %>% select(-contains("dst1"))
+  
+lm_model <- lm(day_ahead_price_ch ~ ., data = df)
+
+# Get coefficients and drop variables with NA coefficients
+na_vars <- names(coef(lm_model)[is.na(coef(lm_model))])
+
+
+df <- df %>% select(-na_vars)
+
+```
+
+## Builtin functions
+
+Inverse hyperbolic sine function
+```{r}
+ihs <- function(x) {
+  y <- log(x + sqrt(x^2 + 1))
+  return(y)
+}
+```
+
+# Inference modeling
+
+## ARIMA
+
+### Untransformed target
+
+A multiple linear regression including all parameters is performed to obtain the ideal parameters for an ARIMA via its regressors (this is done to reduce computational cost, given the large set of regressors). Then, an ARIMA including all regressors is performed on the original target variable.
+
+```{r}
+
+# multiple linear regression with all regressors
+lmCH <- lm(day_ahead_price_ch~ ., data= df )
+
+autoCH<-auto.arima(lmCH$residuals, 
+           # xreg = as.matrix(select(df, -c("day_ahead_price_ch", "date"))),
+           d = 0,
+           D = 0
+           )
+# results in ARIMA(3,0,0)
+
+
+fit1<-Arima(y = df$day_ahead_price_ch, 
+                    order = c(3,0,0),
+                    # lambda = "auto",
+                    xreg = as.matrix(select(df, -c("day_ahead_price_ch", "date"))),
+                    optim.control = ctrl
+                    )
+
+# Get default control parameters
+ctrl <- fit$control
+
+# Adjust control parameters
+ctrl$maxit <- 50  # Limit maximum iterations
+ctrl$trace <- TRUE  # Print optimization progress
+ctrl$epsilon <- 0.01  # Increase convergence criterion
+
+
+
+acf(fit$residuals)
+pacf(fit$residuals)
+plot(fit$residuals)
+
+{qqnorm(fit$residuals)
+qqline(fit$residuals)}
+
+
+
+
+
+```
+
+### ihs transformed target
+
+A multiple linear regression including all parameters is performed to obtain the ideal parameters for an ARIMA via its regressors (this is done to reduce computational cost, given the large set of regressors). Then, an ARIMA including all regressors is performed on the original target variable.
+
+```{r}
+
+# multiple linear regression with all regressors
+lmCH_ihs<- lm(ihs(day_ahead_price_ch)~ ., data= df )
+
+autoCH_ihs<-auto.arima(lmCH_ihs$residuals, 
+           # xreg = as.matrix(select(df, -c("day_ahead_price_ch", "date"))),
+           d = 0,
+           D = 0
+           )
+# results in ARIMA(1,0,0)
+
+
+fit_ihs<-Arima(y = ihs(df$day_ahead_price_ch), 
+                    order = c(3,0,4), 
+                    optim.control = ctrl,
+                    # lambda = "auto",
+                    xreg = as.matrix(select(df, -c("day_ahead_price_ch", "date")))
+                    )
+
+acf(fit_ihs$residuals)
+pacf(fit_ihs$residuals)
+plot(fit_ihs$residuals)
+
+{qqnorm(fit_ihs$residuals)
+qqline(fit_ihs$residuals)}
+
+```
+
+
+
+# Prediction model
+
+## Define train and test
+
+Training dataset of one year: 2023 (`df_test`) and testing dataset of one month and 22 hours: jenuary 2024, 22 hours of the first of february (`df_train`)
+
+```{r}
+df_train <- df %>% filter(date < testcut)
+
+str(df_train)
+
+# detect variables with zero variance
+variances = df_train %>%  
+  select(-c(date)) %>%  
+  mutate_all(as.numeric) %>%
+  apply(2, var)
+
+null_variance_cols <- names(variances[variances == 0])
+
+df_train<- df_train %>% select(-all_of(null_variance_cols))
+
+lm_model <- lm(day_ahead_price_ch ~ ., data = df_train)
+
+# Get coefficients and drop variables with NA coefficients
+na_vars <- names(coef(lm_model)[is.na(coef(lm_model))])
+
+
+df_train <- df_train %>% select(-na_vars)
+
+
+df_test <- df %>% filter(date > testcut) %>% select(-c(na_vars, null_variance_cols))
+
+```
+
+## Fit model
+
+### Untransformed target
+
+Same approach as inference section: multiple linear regression including all parameters is performed to obtain the ideal parameters for an ARIMA via its regressors (this is done to reduce computational cost, given the large set of regressors). Then, an ARIMA including all regressors is performed on the original target variable.
+
+```{r}
+
+# multiple linear regression with all regressors
+lmCH_train <- lm(day_ahead_price_ch~ ., data= df_train )
+
+autoCH<-auto.arima(lmCH_train$residuals, 
+           # xreg = as.matrix(select(df_train, -c("day_ahead_price_ch", "date"))),
+           d = 0,
+           D = 0
+           )
+# results in ARIMA(3,0,0)
+
+
+fit_train <- forecast::Arima(y = df_train$day_ahead_price_ch,
+                    order = c(3,0,0),
+                    # optim.control = ctrl,
+                    # lambda = "auto",
+                    xreg = as.matrix(select(df_train, -c("day_ahead_price_ch", "date")))
+                    )
+
+
+
+acf(fit_train$residuals)
+pacf(fit_train$residuals)
+plot(fit_train$residuals)
+
+{qqnorm(fit_train$residuals)
+qqline(fit_train$residuals)}
+
+```
+
+### Box-Cox transformed target
+
+A multiple linear regression including all parameters is performed to obtain the ideal parameters for an ARIMA via its regressors (this is done to reduce computational cost, given the large set of regressors). Then, an ARIMA including all regressors is performed on the original target variable.
+
+```{r}
+
+# multiple linear regression with all regressors
+lmCH_ihs <- lm(ihs(day_ahead_price_ch)~ ., data= df_train )
+
+autoCH_ihs<-auto.arima(lmCH_ihs$residuals, 
+           # xreg = as.matrix(select(df_train, -c("day_ahead_price_ch", "date"))),
+           d = 0,
+           D = 0
+           )
+# results in ARIMA(4,0,4)
+
+
+fit_train_ihs<-Arima(y = ihs(df_train$day_ahead_price_ch), 
+                    order = c(4,0,4), 
+                    optim.control = ctrl,
+                    # lambda = "auto",
+                    xreg = as.matrix(select(df_train, -c("day_ahead_price_ch", "date")))
+                    )
+
+acf(fit_train_ihs$residuals)
+pacf(fit_train_ihs$residuals)
+plot(fit_train_ihs$residuals)
+
+{qqnorm(fit_train_ihs$residuals)
+qqline(fit_train_ihs$residuals)}
+
+```
+
+
+## Test model
+### Untransformed target
+
+A multiple linear regression including all parameters is performed to obtain the ideal parameters for an ARIMA via its regressors (this is done to reduce computational cost, given the large set of regressors). Then, an ARIMA including all regressors is performed on the original target variable.
+
+```{r}
+forecast::forecast(object = fit_train, h = 24)
+
+cv <- function(fit, newxreg, target){
+  mse <- vector(length = 31)
+  start <- 1
+
+  for (i in 1:31){
+    mse[i] <- mean((predict(fit, 
+           newxreg = newxreg[start:(start+23),],n.ahead = 24)[1]$pred
+           - target[(start):(start+23)])^2)
+    start <- start+24
+  }
+  MSE <- mean(mse)
+  RMSE <- sqrt(mean(mse))
+  return(sqrt(mean(mse)))
+}
+
+fitt<- fit
+
+cv <- function(fit, newxreg, target){
+  mse <- vector(length = 31)
+  start <- 1
+  
+  for (i in 1:31){
+    # Fit the ARIMA model with the most recent data
+    updated_fit <- stats::update(fit, y = df$day_ahead_price_ch[1:8000], xreg = as.matrix(select(df,-c("date","day_ahead_price_ch"))[1:8000,]))
+    
+    # Make predictions
+    pred <- predict(fit, newxreg = newxreg[start:(start+23),], n.ahead = 24)[1]$pred
+    
+    # Calculate mean squared error
+    mse[i] <- mean((pred - target[start:(start+23)])^2)
+    
+    start <- start + 24
+  }
+  
+  RMSE <- sqrt(mean(mse))
+  return(RMSE)
+}
+
+
+
+cv(fit= fit, newxreg= select(df_test, -c("day_ahead_price_ch", "date")), target= df_test$day_ahead_price_ch)
+
+
+tsCV(y = df_test$auction_price_ch_de, 
+     forecastfunction = forecast::forecast.Arima(object = fit),
+     h = 24,
+     window = 24*31, 
+     xreg = select(df_test, -c("date","day_ahead_price_ch"))
+     )
+
+```
+
+### Box-Cox transformed target
+
+A multiple linear regression including all parameters is performed to obtain the ideal parameters for an ARIMA via its regressors (this is done to reduce computational cost, given the large set of regressors). Then, an ARIMA including all regressors is performed on the original target variable.
+
+```{r}
+
+
+
+```
