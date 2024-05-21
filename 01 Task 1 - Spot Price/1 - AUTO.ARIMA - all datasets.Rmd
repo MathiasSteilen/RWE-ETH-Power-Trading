@@ -1,0 +1,111 @@
+---
+title: "1 - auto arimax - all models"
+author: "Tito Quadri"
+date: "2024-05-20"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(forecast)
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(lubridate)
+
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Default theme for charts
+theme_set(
+  theme_bw() +
+    theme(  
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(
+        face = "italic", size = 10, colour = "green50"
+      )
+    )
+)
+
+source('../02 Task 2 - Transmission Price/builtin_functions.R')
+
+
+```
+
+
+# Functions
+
+```{r}
+# predict one month retraining every day
+predict_24_auto <- function(df, target, cut, regressors, n) {
+    # detect "stairwise" variables (non-hourly data)
+  discontinue_variables <- df %>% 
+    select(where(is.numeric)) %>% 
+    detect_columns_with_consecutive(n_consecutive = 13) %>%
+    select(-c(auction_price_ch_de)
+           ) %>% names()
+  # interpolation 
+  df <- df %>%
+    mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.))) 
+  
+  train <- df %>% filter(date<= cut) %>% select(target)
+  test <- df %>% filter(date> cut) %>% select(target)
+  xreg_train<- train %>% select(regressors) %>% as.matrix()
+  xreg_test <- test %>% select(regressors) %>% as.matrix()
+  prediction <- vector(length = n)          # initialize prediction vec
+  first_h <- seq(1, n, by = 24)             # i once every 24
+  for (i in first_h) {
+    # fit arima (no drift)
+    fit<-auto.arima(train, xreg = xreg_train, allowdrift = FALSE)  
+    prediction[i:(23+i)] <- as.vector(
+      predict(object = fit,
+              newxreg = xreg_test[i:(i+23),],
+              n.ahead = 24
+              )[1]$pred
+    )
+    # update variables
+    train<-c(train, test[i:(23+i)])
+    xreg_train<- rbind(xreg_train, xreg_test[i:(i+23),]) %>% as.matrix()
+  }
+  return(prediction)
+}
+
+
+
+# display predicted and actual time series together
+graph_predicted<- function(df, title) {
+  df %>% 
+    ggplot(aes(x= date)) +
+    geom_line(aes(y = Actual, colour = "Actual", )) +
+    geom_line(aes(y = Predicted_auto, colour = "Predicted")) +
+    labs(title = title,
+         y = "price",
+         x = NULL,
+         colour = NULL) +
+    ggsci::scale_colour_jama() +
+    theme_bw() +
+    theme(plot.title = element_text(size = 14, face = "bold"),
+          plot.subtitle = element_text(face = "italic", size = 12,
+                                       colour = "grey50"),
+          legend.position = "bottom")
+}
+```
+
+# Results
+
+## Predictive
+
+### CH price
+
+```{r}
+
+
+
+df_pred<- data.frame("date"= df_test$date[1:n] , 
+             "Actual" = df_test$auction_price_de_ch[1:n],
+             "Predicted" = pred)
+
+
+write.csv(df_pred, "../01 Task 1 - Spot Price/")
+```
+
