@@ -1,0 +1,690 @@
+---
+title: "Linear Regression"
+author: "Olivier Zehnder"
+date: "2024-05-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Loading libraries / Defining functions
+```{r}
+### Modelling of Swiss Day ahead prices
+
+# Load necessary libraries
+
+library(rugarch)
+library(forecast)
+library(dplyr)
+
+#Functions
+# Define a function to calculate R-squared
+calculate_r_squared <- function(true_values, fitted_values) {
+  # Calculate the mean of true values
+  true_mean <- mean(true_values)
+  
+  # Calculate total sum of squares (TSS)
+  TSS <- sum((true_values - true_mean)^2)
+  
+  # Calculate residual sum of squares (RSS)
+  RSS <- sum((true_values - fitted_values)^2)
+  
+  # Calculate R-squared
+  R_squared <- 1 - (RSS / TSS)
+  
+  return(R_squared)
+}
+# Load your dataset
+
+```
+
+Loading data:
+```{r}
+df_CH_DA <- read.csv("~/Downloads/0_df_theoretical_ch_spot_price.csv", header=TRUE)
+df_CH_DA$date <- as.Date(df_CH_DA$date)
+df_CH_DA$cal_day_in_month = as.factor(df_CH_DA$cal_day_in_month)
+df_CH_DA$cal_day_in_week = as.factor(df_CH_DA$cal_day_in_week)
+df_CH_DA$cal_hour_in_day= as.factor(df_CH_DA$cal_hour_in_day)
+df_CH_DA$cal_month = as.factor(df_CH_DA$cal_month)
+df_CH_DA$cal_quarter = as.factor(df_CH_DA$cal_quarter)
+
+
+df_DE_DA <- read.csv("~/Downloads/0_df_theoretical_chde_auction_price.csv", header=TRUE)
+df_DE_DA$date <- as.Date(df_DE_DA$date)
+df_DE_DA$cal_day_in_month = as.factor(df_DE_DA$cal_day_in_month)
+df_DE_DA$cal_day_in_week = as.factor(df_DE_DA$cal_day_in_week)
+df_DE_DA$cal_hour_in_day= as.factor(df_DE_DA$cal_hour_in_day)
+df_DE_DA$cal_month = as.factor(df_DE_DA$cal_month)
+df_DE_DA$cal_quarter = as.factor(df_DE_DA$cal_quarter)
+
+df_DE_CH_AUCT <-read.csv("~/Downloads/0_df_theoretical_dech_auction_price.csv", header=TRUE)
+df_DE_CH_AUCT$date <- as.Date(df_DE_CH_AUCT$date)
+df_DE_CH_AUCT$cal_day_in_month = as.factor(df_DE_CH_AUCT$cal_day_in_month)
+df_DE_CH_AUCT$cal_day_in_week = as.factor(df_DE_CH_AUCT$cal_day_in_week)
+df_DE_CH_AUCT$cal_hour_in_day= as.factor(df_DE_CH_AUCT$cal_hour_in_day)
+df_DE_CH_AUCT$cal_month = as.factor(df_DE_CH_AUCT$cal_month)
+df_DE_CH_AUCT$cal_quarter = as.factor(df_DE_CH_AUCT$cal_quarter)
+
+df_CH_DE_AUCT <- read.csv("~/Downloads/0_df_theoretical_chde_auction_price.csv", header=TRUE)
+df_CH_DE_AUCT$date <- as.Date(df_CH_DE_AUCT$date)
+df_CH_DE_AUCT$cal_day_in_month = as.factor(df_CH_DE_AUCT$cal_day_in_month)
+df_CH_DE_AUCT$cal_day_in_week = as.factor(df_CH_DE_AUCT$cal_day_in_week)
+df_CH_DE_AUCT$cal_hour_in_day= as.factor(df_CH_DE_AUCT$cal_hour_in_day)
+df_CH_DE_AUCT$cal_month = as.factor(df_CH_DE_AUCT$cal_month)
+df_CH_DE_AUCT$cal_quarter = as.factor(df_CH_DE_AUCT$cal_quarter)
+
+```
+
+Getting rid of linear dependent cols:
+```{r}
+df_CH_DA_train= arrange(df_CH_DA, date)[1:8734,]
+fit_cleaning= lm(day_ahead_price_ch~., data=df_CH_DA_train)
+
+# Identify predictors with NA coefficients (indicating rank deficiency)
+na_predictors <- names(fit_cleaning$coefficients)[is.na(fit_cleaning$coefficients)]
+
+df_CH_DA <- df_CH_DA %>%
+  select(-any_of(na_predictors))
+
+df_DE_DA <- df_DE_DA %>%
+  select(-any_of(na_predictors))
+
+df_DE_CH_AUCT <- df_DE_CH_AUCT %>%
+  select(-any_of(na_predictors))
+
+df_CH_DE_AUCT <- df_CH_DE_AUCT %>%
+  select(-any_of(na_predictors))
+```
+
+
+
+Split the data into training and testing data. Training data is data from the year 2023, testing data from the year 2024
+```{r}
+
+
+df_CH_DA_train= arrange(df_CH_DA, date)[1:8734,] #Split data at end of 2023 / Beginning of 2024  into train and test
+df_CH_DA_test= arrange(df_CH_DA, date)[8735:9477,]
+
+df_DE_DA_train= arrange(df_DE_DA, date)[1:8734,]
+df_DE_DA_test= arrange(df_DE_DA, date)[8735:9477,]
+
+df_DE_CH_AUCT_train= arrange(df_DE_CH_AUCT, date)[1:8734,]
+df_DE_CH_AUCT_test= arrange(df_DE_CH_AUCT, date)[8735:9477,]
+
+df_CH_DE_AUCT_train= arrange(df_CH_DE_AUCT, date)[1:8734,]
+df_CH_DE_AUCT_test= arrange(df_CH_DE_AUCT, date)[8735:9477,]
+
+rm(df_CH_DA)
+rm(df_DE_DA)
+rm(df_DE_CH_AUCT)
+rm(df_CH_DE_AUCT)
+```
+
+
+
+##Part One##: Baseline Model, Linear Regression
+
+As a baseline, we fit a linear regression to see how well it will perform
+
+```{r}
+### PART ONE: BASELINE MODEL - Linear Regression 
+fit_DA_CH= lm(day_ahead_price_ch~., data=df_CH_DA_train)
+fit_DA_DE= lm(day_ahead_price_de~., data=df_DE_DA_train)
+fit_AC_DE_CH= lm(auction_price_de_ch~., data=df_DE_CH_AUCT_train)
+fit_AC_CH_DE= lm(auction_price_ch_de~., data=df_CH_DE_AUCT_train)
+
+#Visualization of fit:
+plot(df_CH_DA_train$day_ahead_price_ch, type="l", main="fit_DA_CH")
+lines(fit_DA_CH$fitted.values, col="red")
+
+plot(df_DE_DA_train$day_ahead_price_de, type="l", main="fit_DA_DE")
+lines(fit_DA_DE$fitted.values, col="red")
+
+plot(df_DE_CH_AUCT_train$auction_price_de_ch, type="l", main="fit_AC_DE_CH")
+lines(fit_AC_DE_CH$fitted.values, col="red")
+
+plot(df_CH_DE_AUCT_train$auction_price_ch_de, type="l", main="fit_AC_CH_DE")
+lines(fit_AC_CH_DE$fitted.values, col="red")
+
+```
+
+###Resiudal Analysis:###
+```{r}
+# Plotting the residuals
+residuals_DA_price_ch  <- residuals(fit_DA_CH)
+residuals_DA_price_de  <- residuals(fit_DA_DE)
+residuals_auct_CH_DE<- residuals(fit_AC_CH_DE)
+residuals_auct_DE_CH <- residuals(fit_AC_DE_CH)
+
+
+# Plot histogram of residuals
+hist(residuals_auct_DE_CH, breaks = 20, main = "Histogram of Residuals")
+hist(residuals_auct_CH_DE, breaks = 20, main = "Histogram of Residuals")
+hist(residuals_DA_price_ch, breaks = 20, main = "Histogram of Residuals")
+hist(residuals_DA_price_de, breaks = 20, main = "Histogram of Residuals")
+
+# Plot QQ plot of residuals
+qqnorm(residuals_auct_DE_CH)
+qqline(residuals_auct_DE_CH)
+
+qqnorm(residuals_auct_CH_DE)
+qqline(residuals_auct_CH_DE)
+
+qqnorm(residuals_DA_price_ch)
+qqline(residuals_DA_price_ch)
+
+qqnorm(residuals_DA_price_de)
+qqline(residuals_DA_price_de)
+```
+
+```{r}
+#removing last 24 rows due to shifted data
+
+#First Insights: Every fit seems to be decent, except for the Auction price from 
+#print("Swiss DA Prices:")
+R2_DA_CH= calculate_r_squared(df_CH_DA_test$day_ahead_price_ch[1:743], predict(object = fit_DA_CH, newdata = df_CH_DA_test[1:743,]))
+mse_DA_CH= mean((df_CH_DA_test$day_ahead_price_ch[1:743] -predict(object = fit_DA_CH, newdata = df_CH_DA_test[1:743,]))^2)
+
+#print("German DA Prices:")
+R2_DA_DE= calculate_r_squared(df_DE_DA_test$day_ahead_price_de[1:743], predict(object = fit_DA_DE, newdata = df_DE_DA_test[1:743,]))
+mse_DA_DE= mean((df_DE_DA_test$day_ahead_price_de[1:743] - predict(object = fit_DA_DE, newdata = df_DE_DA_test[1:743,]))^2)
+
+#print("Auction Prices: CH-DE")
+#Taking pmax of auction price prediction due to auction prices never being negative
+
+R2_AUCT_DE_CH= calculate_r_squared(df_DE_CH_AUCT_test$auction_price_de_ch[1:743], pmax(0,predict(object = fit_AC_DE_CH, newdata = df_DE_CH_AUCT_test[1:743,])))
+mse_AUCT_DE_CH= mean((df_DE_CH_AUCT_test$auction_price_de_ch[1:743] -pmax(0,predict(object = fit_AC_DE_CH, newdata = df_DE_CH_AUCT_test[1:743,])))^2)
+
+
+#print("Auction Prices: DE-CH")
+#Taking pmax of auction price prediction due to auction prices never being negative
+
+R2_AUCT_CH_DE= calculate_r_squared(df_CH_DE_AUCT_test$auction_price_ch_de[1:743], pmax(0,predict(object = fit_AC_CH_DE, newdata = df_CH_DE_AUCT_test[1:743,])))
+mse_AUCT_CH_DE= mean((df_CH_DE_AUCT_test$auction_price_ch_de[1:743] -pmax(0,predict(object = fit_AC_CH_DE, newdata = df_CH_DE_AUCT_test[1:743,])))^2)
+
+
+# Create a dataframe for Sample 1
+Day_Ahead_Price_CH <- data.frame(mse = mse_DA_CH, rsquared = R2_DA_CH, row.names = "Swiss DA Prices")
+
+# Create a dataframe for Sample 2
+Day_Ahead_Price_DE <- data.frame(mse = mse_DA_DE, rsquared = R2_DA_DE, row.names = "German DA Prices")
+
+
+Auction_Price_CH_DE <- data.frame(mse = mse_AUCT_CH_DE, rsquared = R2_AUCT_CH_DE, row.names = "Auction Price CH_DE")
+
+Auction_Price_DE_CH <- data.frame(mse = mse_AUCT_DE_CH, rsquared = R2_AUCT_DE_CH, row.names = "Auction Price DE_CH")
+
+
+# Bind the dataframes row-wise
+result_table <- rbind(Day_Ahead_Price_CH, Day_Ahead_Price_DE,Auction_Price_CH_DE, Auction_Price_DE_CH )
+
+# Print the result
+print(result_table)
+```
+
+```{r}
+#Visualization of out of samplefit:
+plot(df_CH_DA_test$day_ahead_price_ch[0:743], type="l", main="Swiss Day Ahead Prices - Predictions",  xlab = " ", ylab = "Price", xaxt = "n", ylim=c(-100,200))
+lines(predict(object = fit_DA_CH, newdata = df_CH_DA_test[1:743,]), col="red")
+axis(1, at = seq(1, 743, by = 360), labels = df_DE_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
+
+plot(df_DE_DA_test$day_ahead_price_de[0:743], type="l", main="fit_DA_DE",  xlab = " ", ylab = "Price", xaxt = "n", ylim=c(-50,250))
+lines(predict(object = fit_DA_DE, newdata = df_DE_DA_test[1:743,]), col="red")
+axis(1, at = seq(1, 743, by = 360), labels = df_DE_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
+
+plot(df_DE_CH_AUCT_test$auction_price_de_ch[0:743], type="l", main="fit_AC_DE_CH", xlab = " ", ylab = "Price", xaxt = "n", ylim=c(-50,100))
+lines(pmax(0,predict(object = fit_AC_DE_CH, newdata = df_DE_CH_AUCT_test[1:743,])), col="red")
+axis(1, at = seq(1, 743, by = 360), labels = df_DE_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
+
+
+plot(df_CH_DE_AUCT_test$auction_price_ch_de[0:743], type="l", main="fit_AC_DE_CH", xlab = " ", ylab = "Price", xaxt = "n",, ylim=c(0,40) )
+lines(pmax(0,predict(object = fit_AC_CH_DE, newdata = df_CH_DE_AUCT_test[1:743,])), col="red")
+axis(1, at = seq(1, 743, by = 360), labels = df_DE_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
+
+```
+
+Model overfits trianing data strongly, what about only using date and financial data for prediciton:
+```{r}
+### PART ONE: BASELINE MODEL - Linear Regression 
+fit_DA_CH= lm(day_ahead_price_ch~., data=df_CH_DA_train[,c(1:9, 22:26)])
+fit_DA_DE= lm(day_ahead_price_de~., data=df_DE_DA_train[,c(1:9, 22:26)])
+fit_AC_DE_CH= lm(auction_price_de_ch~., data=df_DE_CH_AUCT_train[,c(1:9, 22:26)])
+fit_AC_CH_DE= lm(auction_price_ch_de~., data=df_CH_DE_AUCT_train[,c(1:9, 22:26)])
+
+#Visualization of fit:
+plot(df_CH_DA_train$day_ahead_price_ch, type="l", main="fit_DA_CH")
+lines(fit_DA_CH$fitted.values, col="red")
+
+plot(df_DE_DA_train$day_ahead_price_de, type="l", main="fit_DA_DE")
+lines(fit_DA_DE$fitted.values, col="red")
+
+plot(df_DE_CH_AUCT_train$auction_price_de_ch, type="l", main="fit_AC_DE_CH")
+lines(fit_AC_DE_CH$fitted.values, col="red")
+
+plot(df_CH_DE_AUCT_train$auction_price_ch_de, type="l", main="fit_AC_CH_DE")
+lines(fit_AC_CH_DE$fitted.values, col="red")
+
+```
+
+###Resiudal Analysis:###
+```{r}
+# Plotting the residuals
+residuals_DA_price_ch  <- residuals(fit_DA_CH)
+residuals_DA_price_de  <- residuals(fit_DA_DE)
+residuals_auct_CH_DE<- residuals(fit_AC_CH_DE)
+residuals_auct_DE_CH <- residuals(fit_AC_DE_CH)
+
+
+# Plot histogram of residuals
+hist(residuals_auct_DE_CH, breaks = 20, main = "Histogram of Residuals")
+hist(residuals_auct_CH_DE, breaks = 20, main = "Histogram of Residuals")
+hist(residuals_DA_price_ch, breaks = 20, main = "Histogram of Residuals")
+hist(residuals_DA_price_de, breaks = 20, main = "Histogram of Residuals")
+
+# Plot QQ plot of residuals
+qqnorm(residuals_auct_DE_CH)
+qqline(residuals_auct_DE_CH)
+
+qqnorm(residuals_auct_CH_DE)
+qqline(residuals_auct_CH_DE)
+
+qqnorm(residuals_DA_price_ch)
+qqline(residuals_DA_price_ch)
+
+qqnorm(residuals_DA_price_de)
+qqline(residuals_DA_price_de)
+```
+
+```{r}
+#removing last 24 rows due to shifted data
+
+#First Insights: Every fit seems to be decent, except for the Auction price from 
+#print("Swiss DA Prices:")
+R2_DA_CH= calculate_r_squared(df_CH_DA_test$day_ahead_price_ch[1:743], predict(object = fit_DA_CH, newdata = df_CH_DA_test[1:743,]))
+mse_DA_CH= mean((df_CH_DA_test$day_ahead_price_ch[1:743] -predict(object = fit_DA_CH, newdata = df_CH_DA_test[1:743,]))^2)
+
+#print("German DA Prices:")
+R2_DA_DE= calculate_r_squared(df_DE_DA_test$day_ahead_price_de[1:743], predict(object = fit_DA_DE, newdata = df_DE_DA_test[1:743,]))
+mse_DA_DE= mean((df_DE_DA_test$day_ahead_price_de[1:743] - predict(object = fit_DA_DE, newdata = df_DE_DA_test[1:743,]))^2)
+
+#print("Auction Prices: CH-DE")
+#Taking pmax of auction price prediction due to auction prices never being negative
+
+R2_AUCT_DE_CH= calculate_r_squared(df_DE_CH_AUCT_test$auction_price_de_ch[1:743], pmax(0,predict(object = fit_AC_DE_CH, newdata = df_DE_CH_AUCT_test[1:743,])))
+mse_AUCT_DE_CH= mean((df_DE_CH_AUCT_test$auction_price_de_ch[1:743] -pmax(0,predict(object = fit_AC_DE_CH, newdata = df_DE_CH_AUCT_test[1:743,])))^2)
+
+
+#print("Auction Prices: DE-CH")
+#Taking pmax of auction price prediction due to auction prices never being negative
+
+R2_AUCT_CH_DE= calculate_r_squared(df_CH_DE_AUCT_test$auction_price_ch_de[1:743], pmax(0,predict(object = fit_AC_CH_DE, newdata = df_CH_DE_AUCT_test[1:743,])))
+mse_AUCT_CH_DE= mean((df_CH_DE_AUCT_test$auction_price_ch_de[1:743] -pmax(0,predict(object = fit_AC_CH_DE, newdata = df_CH_DE_AUCT_test[1:743,])))^2)
+
+
+# Create a dataframe for Sample 1
+Day_Ahead_Price_CH <- data.frame(mse = mse_DA_CH, rsquared = R2_DA_CH, row.names = "Swiss DA Prices")
+
+# Create a dataframe for Sample 2
+Day_Ahead_Price_DE <- data.frame(mse = mse_DA_DE, rsquared = R2_DA_DE, row.names = "German DA Prices")
+
+
+Auction_Price_CH_DE <- data.frame(mse = mse_AUCT_CH_DE, rsquared = R2_AUCT_CH_DE, row.names = "Auction Price CH_DE")
+
+Auction_Price_DE_CH <- data.frame(mse = mse_AUCT_DE_CH, rsquared = R2_AUCT_DE_CH, row.names = "Auction Price DE_CH")
+
+
+# Bind the dataframes row-wise
+result_table <- rbind(Day_Ahead_Price_CH, Day_Ahead_Price_DE,Auction_Price_CH_DE, Auction_Price_DE_CH )
+
+# Print the result
+print(result_table)
+```
+Works great for German day ahead prices
+
+
+```{r}
+#Visualization of out of samplefit:
+plot(df_CH_DA_test$day_ahead_price_ch[0:743], type="l", main="Swiss Day Ahead Prices - Predictions",  xlab = " ", ylab = "Price", xaxt = "n", ylim=c(-100,200))
+lines(predict(object = fit_DA_CH, newdata = df_CH_DA_test[1:743,]), col="red")
+axis(1, at = seq(1, 743, by = 360), labels = df_DE_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
+
+plot(df_DE_DA_test$day_ahead_price_de[0:743], type="l", main="fit_DA_DE",  xlab = " ", ylab = "Price", xaxt = "n", ylim=c(-50,250))
+lines(predict(object = fit_DA_DE, newdata = df_DE_DA_test[1:743,]), col="red")
+axis(1, at = seq(1, 743, by = 360), labels = df_DE_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
+
+plot(df_DE_CH_AUCT_test$auction_price_de_ch[0:743], type="l", main="fit_AC_DE_CH", xlab = " ", ylab = "Price", xaxt = "n", ylim=c(-50,100))
+lines(pmax(0,predict(object = fit_AC_DE_CH, newdata = df_DE_CH_AUCT_test[1:743,])), col="red")
+axis(1, at = seq(1, 743, by = 360), labels = df_DE_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
+
+
+plot(df_CH_DE_AUCT_test$auction_price_ch_de[0:743], type="l", main="fit_AC_DE_CH", xlab = " ", ylab = "Price", xaxt = "n",, ylim=c(0,15) )
+lines(pmax(0,predict(object = fit_AC_CH_DE, newdata = df_CH_DE_AUCT_test[1:743,])), col="red")
+axis(1, at = seq(1, 743, by = 360), labels = df_DE_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
+
+```
+
+```{r}
+# Save forward selection models
+save(fit_DA_CH_forward, fit_DA_DE_forward, fit_AC_DE_CH_forward, fit_AC_CH_DE_forward, 
+     file = "forward_selection_models_AIC.RData")
+
+# Save backward selection models
+save(fit_DA_CH_backward, fit_DA_DE_backward, fit_AC_DE_CH_backward, fit_AC_CH_DE_backward, 
+     file = "backward_selection_models_AIC.RData")
+
+```
+
+
+```{r}
+#Visualization of fit of backwards selection:
+plot(df_CH_DA_train$day_ahead_price_ch, type="l", main="fit_DA_CH BACKWARD")
+lines(fit_DA_CH_backward$fitted.values, col="red")
+#plot(df_CH_DA_train$day_ahead_price_ch, type="l", main="fit_DA_CH Forward")
+#lines(fit_DA_CH_forward$fitted.values, col="red")
+
+plot(df_DE_DA_train$day_ahead_price_de, type="l", main="fit_DA_DE BACKWARD")
+lines(fit_DA_DE_backward$fitted.values, col="red")
+#plot(df_DE_DA_train$day_ahead_price_de, type="l", main="fit_DA_DE Forward")
+#lines(fit_DA_DE_forward$fitted.values, col="red")
+
+plot(df_DE_CH_AUCT_train$auction_price_de_ch, type="l", main="fit_AC_DE_CH BACKWARD")
+lines(fit_AC_DE_CH_backward$fitted.values, col="red")
+#plot(df_DE_CH_AUCT_train$auction_price_de_ch, type="l", main="fit_AC_DE_CH Forward")
+#lines(fit_AC_DE_CH_forward$fitted.values, col="red")
+
+plot(df_CH_DE_AUCT_train$auction_price_ch_de, type="l", main="fit_AC_CH_DE BACKWARD")
+lines(fit_AC_CH_DE_backward$fitted.values, col="red")
+#plot(df_CH_DE_AUCT_train$auction_price_ch_de, type="l", main="fit_AC_CH_DE Forward")
+#lines(fit_AC_CH_DE_forward$fitted.values, col="red")
+
+```
+
+###Resiudal Analysis:###
+```{r}
+# Plotting the residuals
+residuals_DA_price_ch_backward  <- residuals(fit_DA_CH_backward)
+residuals_DA_price_de_backward  <- residuals(fit_DA_DE_backward)
+residuals_auct_CH_DE_backward<- residuals(fit_AC_CH_DE_backward)
+residuals_auct_DE_CH_backward <- residuals(fit_AC_DE_CH_backward)
+
+
+#residuals_DA_price_ch_forward  <- residuals(fit_DA_CH_forward)
+#residuals_DA_price_de_forward  <- residuals(fit_DA_DE_forward)
+#residuals_auct_CH_DE_forward<- residuals(fit_AC_CH_DE_forward)
+#residuals_auct_DE_CH_forward <- residuals(fit_AC_DE_CH_forward)
+
+
+# Plot histogram of residuals
+hist(residuals_DA_price_ch_backward, breaks = 20, main = "Histogram of residuals_DA_price_ch_backward")
+hist(residuals_DA_price_de_backward, breaks = 20, main = "Histogram of residuals_DA_price_de_backward")
+hist(residuals_auct_CH_DE_backward, breaks = 20, main = "Histogram of residuals_auct_CH_DE_backward")
+hist(residuals_auct_DE_CH_backward, breaks = 20, main = "Histogram of residuals_auct_DE_CH_backward")
+
+
+# Plot histogram of residuals
+#hist(residuals_DA_price_ch_forward, breaks = 20, main = "Histogram of residuals_DA_price_ch_forward")
+#hist(residuals_DA_price_de_forward, breaks = 20, main = "Histogram of residuals_DA_price_de_forward")
+#hist(residuals_auct_CH_DE_forward, breaks = 20, main = "Histogram of residuals_auct_CH_DE_forward")
+#hist(residuals_auct_DE_CH_forward, breaks = 20, main = "Histogram of Residuals_auct_DE_CH_forward")
+
+# Plot QQ plot of residuals
+qqnorm(residuals_DA_price_ch_backward, main="residuals_DA_price_ch_backward")
+qqline(residuals_DA_price_ch_backward)
+
+qqnorm(residuals_DA_price_de_backward, main="residuals_DA_price_de_backward")
+qqline(residuals_DA_price_de_backward)
+
+qqnorm(residuals_auct_CH_DE_backward, main="residuals_auct_CH_DE_backward")
+qqline(residuals_auct_CH_DE_backward)
+
+qqnorm(residuals_auct_DE_CH_backward, main= "residuals_auct_DE_CH_backward")
+qqline(residuals_auct_DE_CH_backward)
+
+#qqnorm(residuals_DA_price_ch_forward, main="residuals_DA_price_ch_forward")
+#qqline(residuals_DA_price_ch_forward)
+
+#qqnorm(residuals_DA_price_de_forward,  main= "residuals_DA_price_de_forward")
+#qqline(residuals_DA_price_de_forward)
+
+#qqnorm(residuals_auct_CH_DE_forward, main="residuals_auct_CH_DE_forward")
+#qqline(residuals_auct_CH_DE_forward)
+
+#qqnorm(residuals_auct_DE_CH_forward, main="residuals_auct_DE_CH_forward")
+#qqline(residuals_auct_DE_CH_forward)
+
+
+```
+
+
+
+```{r}
+#Visualization of out of samplefit:
+plot(df_CH_DA_test$day_ahead_price_ch[0:743], type="l", main="Swiss Day Ahead Prices - Predictions (Backwards)",  xlab = " ", ylab = "Price", xaxt = "n")
+lines(predict(object = fit_DA_CH_backward, newdata = df_CH_DA_test[1:743,]), col="red")
+axis(1, at = seq(1, 743, by = 360), labels = df_DE_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
+
+plot(df_DE_DA_test$day_ahead_price_de[0:743], type="l", main="German Day Ahead Prices - Predictions (Backwards)",  xlab = " ", ylab = "Price", xaxt = "n")
+lines(predict(object = fit_DA_DE_backward, newdata = df_DE_DA_test[1:743,]), col="red")
+axis(1, at = seq(1, 743, by = 360), labels = df_DE_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
+
+plot(df_DE_CH_AUCT_test$auction_price_de_ch[0:743], type="l", main="Auction Prices DE-CH - Predictions (Backward)", xlab = " ", ylab = "Price", xaxt = "n", ylim= c(0,80))
+lines(pmax(0,predict(object = fit_AC_DE_CH_backward, newdata = df_DE_CH_AUCT_test[1:743,])), col="red")
+axis(1, at = seq(1, 743, by = 360), labels = df_DE_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
+
+
+plot(df_CH_DE_AUCT_test$auction_price_ch_de[0:743], type="l", main="Auction Prices CH-DE - Predictions (Backward)", xlab = " ", ylab = "Price", xaxt = "n", ylim= c(0,80))
+lines(pmax(0,predict(object = fit_AC_CH_DE_backward, newdata = df_CH_DE_AUCT_test[1:743,])), col="red")
+axis(1, at = seq(1, 743, by = 360), labels = df_DE_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
+
+```
+
+```{r}
+#Visualization of out of samplefit:
+plot(df_CH_DA_test$day_ahead_price_ch[0:743], type="l", main="Swiss Day Ahead Prices - Predictions (Forward)",  xlab = " ", ylab = "Price", xaxt = "n")
+lines(predict(object = fit_DA_CH_forward, newdata = df_CH_DA_test[1:743,]), col="red")
+axis(1, at = seq(1, 743, by = 360), labels = df_DE_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
+
+plot(df_DE_DA_test$day_ahead_price_de[0:743], type="l", main="German Day Ahead Prices - Predictions (Forward)",  xlab = " ", ylab = "Price", xaxt = "n")
+lines(predict(object = fit_DA_DE_forward, newdata = df_DE_DA_test[1:743,]), col="red")
+axis(1, at = seq(1, 743, by = 360), labels = df_DE_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
+
+plot(df_DE_CH_AUCT_test$auction_price_de_ch[0:743], type="l", main="Auction Prices DE-CH - Predictions (Forward)", xlab = " ", ylab = "Price", xaxt = "n", ylim= c(0,80))
+lines(pmax(0,predict(object = fit_AC_DE_CH_forward, newdata = df_DE_CH_AUCT_test[1:743,])), col="red")
+axis(1, at = seq(1, 743, by = 360), labels = df_DE_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
+
+
+plot(df_CH_DE_AUCT_test$auction_price_ch_de[0:743], type="l", main="Auction Prices CH-DE - Predictions (Forward)", xlab = " ", ylab = "Price", xaxt = "n",ylim=c(0,500))
+lines(pmax(0,predict(object = fit_AC_CH_DE_forward, newdata = df_CH_DE_AUCT_test[1:743,])), col="red")
+axis(1, at = seq(1, 743, by = 360), labels = df_DE_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
+
+```
+Evaluating fit of backwards model selection
+```{r}
+#removing last 24 rows due to shifted data
+
+#First Insights: Every fit seems to be decent, except for the Auction price from 
+#print("Swiss DA Prices:")
+R2_DA_CH= calculate_r_squared(df_CH_DA_test$day_ahead_price_ch[1:743], predict(object = fit_DA_CH_backward, newdata = df_CH_DA_test[1:743,]))
+mse_DA_CH= mean((df_CH_DA_test$day_ahead_price_ch[1:743] -predict(object = fit_DA_CH_backward, newdata = df_CH_DA_test[1:743,]))^2)
+
+#print("German DA Prices:")
+R2_DA_DE= calculate_r_squared(df_DE_DA_test$day_ahead_price_de[1:743], predict(object = fit_DA_DE_backward, newdata = df_DE_DA_test[1:743,]))
+mse_DA_DE= mean((df_DE_DA_test$day_ahead_price_de[1:743] - predict(object = fit_DA_DE_backward, newdata = df_DE_DA_test[1:743,]))^2)
+
+#print("Auction Prices: CH-DE")
+#Taking pmax of auction price prediction due to auction prices never being negative
+
+R2_AUCT_DE_CH= calculate_r_squared(df_DE_CH_AUCT_test$auction_price_de_ch[1:743], pmax(0,predict(object = fit_AC_DE_CH_backward, newdata = df_DE_CH_AUCT_test[1:743,])))
+mse_AUCT_DE_CH= mean((df_DE_CH_AUCT_test$auction_price_de_ch[1:743] -pmax(0,predict(object = fit_AC_DE_CH_backward, newdata = df_DE_CH_AUCT_test[1:743,])))^2)
+
+
+#print("Auction Prices: DE-CH")
+#Taking pmax of auction price prediction due to auction prices never being negative
+
+R2_AUCT_CH_DE= calculate_r_squared(df_CH_DE_AUCT_test$auction_price_ch_de[1:743], pmax(0,predict(object = fit_AC_CH_DE_backward, newdata = df_CH_DE_AUCT_test[1:743,])))
+mse_AUCT_CH_DE= mean((df_CH_DE_AUCT_test$auction_price_ch_de[1:743] -pmax(0,predict(object = fit_AC_CH_DE_backward, newdata = df_CH_DE_AUCT_test[1:743,])))^2)
+
+
+# Create a dataframe for Sample 1
+Day_Ahead_Price_CH <- data.frame(mse = mse_DA_CH, rsquared = R2_DA_CH, row.names = "Swiss DA Prices")
+
+# Create a dataframe for Sample 2
+Day_Ahead_Price_DE <- data.frame(mse = mse_DA_DE, rsquared = R2_DA_DE, row.names = "German DA Prices")
+
+
+Auction_Price_CH_DE <- data.frame(mse = mse_AUCT_CH_DE, rsquared = R2_AUCT_CH_DE, row.names = "Auction Price CH_DE")
+
+Auction_Price_DE_CH <- data.frame(mse = mse_AUCT_DE_CH, rsquared = R2_AUCT_DE_CH, row.names = "Auction Price DE_CH")
+
+
+# Bind the dataframes row-wise
+result_table <- rbind(Day_Ahead_Price_CH, Day_Ahead_Price_DE,Auction_Price_CH_DE, Auction_Price_DE_CH )
+
+# Print the result
+print(result_table)
+```
+
+
+Checking if a transformed version of the response yields better results
+```{r}
+### PART ONE: BASELINE MODEL - Linear Regression 
+
+fit_DA_CH= lm(asinh(day_ahead_price_ch)~., data=df_CH_DA_train)
+fit_DA_DE= lm(asinh(day_ahead_price_de)~., data=df_DE_DA_train)
+fit_AC_CH_DE= lm(asinh(auction_price_ch_de)~., data=df_CH_DE_AUCT_train)
+fit_AC_DE_CH= lm(asinh(auction_price_de_ch)~., data=df_DE_CH_AUCT_train )
+
+
+
+
+```
+
+
+```{r}
+
+#Visualization of fit:
+plot(df_CH_DA_train$day_ahead_price_ch, type="l", main="Swiss Day-Ahead Price", xlab="", xaxt = "n", ylab= "Price")
+lines(sinh(fit_DA_CH$fitted.values), col="red")
+axis(1, at = seq(1, 5831, by = 720), labels = df_CH_DA_train$date[seq(1, 5831, by = 720)], las = 2, cex.axis = 0.7)
+
+
+plot(df_DE_DA_train$day_ahead_price_de, type="l", main="German Day-Ahead Price", xlab="", xaxt = "n", ylab= "Price")
+lines(sinh(fit_DA_DE$fitted.values), col="red")
+axis(1, at = seq(1, 5831, by = 720), labels = df_CH_DA_train$date[seq(1, 5831, by = 720)], las = 2, cex.axis = 0.7)
+
+
+plot(df_DE_CH_AUCT_train$auction_price_de_ch, type="l", main="Auction Price CH-DE", xlab="", xaxt = "n", ylab= "Price")
+lines(sinh(fit_AC_DE_CH$fitted.values), col="red")
+axis(1, at = seq(1, 5831, by = 720), labels = df_CH_DA_train$date[seq(1, 5831, by = 720)], las = 2, cex.axis = 0.7)
+
+
+plot(df_CH_DE_AUCT_train$auction_price_ch_de, type="l", main="Auction Price DE-CH", xlab="", xaxt = "n", ylab= "Price")
+lines(sinh(fit_AC_CH_DE$fitted.values), col="red")
+axis(1, at = seq(1, 5831, by = 720), labels = df_CH_DA_train$date[seq(1, 5831, by = 720)], las = 2, cex.axis = 0.7)
+
+```
+###Resiudal Analysis:###
+```{r}
+# Plotting the residuals
+
+
+
+residuals_DA_price_ch <- residuals(fit_DA_CH)
+residuals_DA_price_de  <- residuals(fit_DA_DE)
+residuals_auct_CH_DE<- residuals(fit_AC_CH_DE)
+#residuals_auct_DE_CH  <- residuals(fit_AC_DE_CH)
+
+
+# Plot histogram of residuals
+#hist(residuals_auct_DE_CH, breaks = 20, main = "Histogram of Residuals")
+hist(residuals_auct_CH_DE, breaks = 20, main = "Histogram of Residuals")
+hist(residuals_DA_price_ch, breaks = 20, main = "Histogram of Residuals")
+hist(residuals_DA_price_de, breaks = 20, main = "Histogram of Residuals")
+
+# Plot QQ plot of residuals
+#qqnorm(residuals_auct_DE_CH)
+#qqline(residuals_auct_DE_CH)
+
+qqnorm(residuals_auct_CH_DE)
+qqline(residuals_auct_CH_DE)
+
+qqnorm(residuals_DA_price_ch)
+qqline(residuals_DA_price_ch)
+
+qqnorm(residuals_DA_price_de)
+qqline(residuals_DA_price_de)
+```
+The residual plots for the day ahead prices might have improved slightly regarding the higher end tail, but the lower end tail deviates a lot from a normal distribution
+
+
+```{r}
+#removing last 24 rows due to shifted data
+
+#First Insights: Every fit seems to be decent, except for the Auction price from 
+#print("Swiss DA Prices:")
+R2_DA_CH= calculate_r_squared(df_CH_DA_test$day_ahead_price_ch[1:743], sinh(predict(object = fit_DA_CH, newdata = df_CH_DA_test[1:743,])))
+mse_DA_CH= mean((df_CH_DA_test$day_ahead_price_ch[1:743] -sinh(predict(object = fit_DA_CH, newdata = df_CH_DA_test[1:743,])))^2)
+
+#print("German DA Prices:")
+R2_DA_DE= calculate_r_squared(df_DE_DA_test$day_ahead_price_de[1:743], sinh(predict(object = fit_DA_DE, newdata = df_DE_DA_test[1:743,])))
+mse_DA_DE= mean((df_DE_DA_test$day_ahead_price_de[1:743] - sinh(predict(object = fit_DA_DE, newdata = df_DE_DA_test[1:743,])))^2)
+
+#print("Auction Prices: CH-DE")
+#Taking pmax of auction price prediction due to auction prices never being negative
+
+R2_AUCT_DE_CH= calculate_r_squared(df_DE_CH_AUCT_test$auction_price_de_ch[1:743], pmax(0,sinh(predict(object = fit_AC_DE_CH, newdata = df_DE_CH_AUCT_test[1:743,]))))
+mse_AUCT_DE_CH= mean((df_DE_CH_AUCT_test$auction_price_de_ch[1:743] -pmax(0,sinh(predict(object = fit_AC_DE_CH, newdata = df_DE_CH_AUCT_test[1:743,]))))^2)
+
+
+#print("Auction Prices: DE-CH")
+#Taking pmax of auction price prediction due to auction prices never being negative
+
+R2_AUCT_CH_DE= calculate_r_squared(df_CH_DE_AUCT_test$auction_price_ch_de[1:743], pmax(0,sinh(predict(object = fit_AC_CH_DE, newdata = df_CH_DE_AUCT_test[1:743,]))))
+mse_AUCT_CH_DE= mean((df_CH_DE_AUCT_test$auction_price_ch_de[1:743] -pmax(0,sinh(predict(object = fit_AC_CH_DE, newdata = df_CH_DE_AUCT_test[1:743,]))))^2)
+
+
+# Create a dataframe for Sample 1
+Day_Ahead_Price_CH <- data.frame(mse = mse_DA_CH, rsquared = R2_DA_CH, row.names = "Swiss DA Prices")
+
+# Create a dataframe for Sample 2
+Day_Ahead_Price_DE <- data.frame(mse = mse_DA_DE, rsquared = R2_DA_DE, row.names = "German DA Prices")
+
+
+Auction_Price_CH_DE <- data.frame(mse = mse_AUCT_CH_DE, rsquared = R2_AUCT_CH_DE, row.names = "Auction Price CH_DE")
+
+Auction_Price_DE_CH <- data.frame(mse = mse_AUCT_DE_CH, rsquared = R2_AUCT_DE_CH, row.names = "Auction Price DE_CH")
+
+
+# Bind the dataframes row-wise
+result_table <- rbind(Day_Ahead_Price_CH, Day_Ahead_Price_DE,Auction_Price_CH_DE)#, Auction_Price_DE_CH )
+
+# Print the result
+print(result_table)
+```
+
+
+
+```{r}
+#Visualization of out of sample fit:
+plot(df_CH_DA_test$day_ahead_price_ch[0:743], type="l", main="Swiss Day Ahead Prices - Predictions",  xlab = " ", ylab = "Price", xaxt = "n", ylim=c(0,350))
+lines(sinh(predict(object = fit_DA_CH, newdata = df_CH_DA_test[1:743,])), col="red")
+axis(1, at = seq(1, 743, by = 360), labels = df_DE_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
+
+plot(df_DE_DA_test$day_ahead_price_de[0:743], type="l", main="fit_DA_DE", ylim=c(-50,350), xlab = " ", ylab = "Price", xaxt = "n")
+lines(sinh(predict(object = fit_DA_DE, newdata = df_DE_DA_test[1:743,])), col="red")
+axis(1, at = seq(1, 743, by = 360), labels = df_DE_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
+
+plot(df_DE_CH_AUCT_test$auction_price_de_ch[0:743], type="l", main="fit_AC_DE_CH", xlab = " ", ylab = "Price", xaxt = "n", ylim= c(0,80))
+lines(pmax(0,sinh(predict(object = fit_AC_DE_CH, newdata = df_DE_CH_AUCT_test[1:743,]))), col="red")
+axis(1, at = seq(1, 743, by = 360), labels = df_DE_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
+
+
+plot(df_CH_DE_AUCT_test$auction_price_ch_de[0:743], type="l", main="fit_AC_DE_CH", xlab = " ", ylab = "Price", xaxt = "n", ylim= c(0,25))
+lines(pmax(0,sinh(predict(object = fit_AC_CH_DE, newdata = df_CH_DE_AUCT_test[1:743,]))), col="red")
+axis(1, at = seq(1, 743, by = 360), labels = df_DE_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
+
+```
+
