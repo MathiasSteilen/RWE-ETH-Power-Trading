@@ -1,0 +1,153 @@
+---
+title: "Start from scratch again"
+author: "Olivier Zehnder"
+date: "2024-05-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(fGarch)
+```
+
+
+```{r}
+time_cut <- as.POSIXct("2023-01-01 00:00:00", tz = "UTC")
+df_CH_DA <- read.csv("~/Downloads/0_df_predictive_ch_spot_price.csv", header=TRUE) %>% 
+  filter(date >= time_cut)
+
+
+
+
+df_CH_DA$cal_day_in_month = as.factor(df_CH_DA$cal_day_in_month)
+df_CH_DA$cal_day_in_week = as.factor(df_CH_DA$cal_day_in_week)
+df_CH_DA$cal_hour_in_day= as.factor(df_CH_DA$cal_hour_in_day)
+df_CH_DA$cal_month = as.factor(df_CH_DA$cal_month)
+df_CH_DA$cal_quarter = as.factor(df_CH_DA$cal_quarter)
+df_CH_DA$cal_year = as.factor(df_CH_DA$cal_year)
+
+df_CH_DA_test <- df_CH_DA  %>% 
+  filter(date >= as.POSIXct("2024-01-01 00:00:00", tz = "UTC"))
+df_CH_DA_train=df_CH_DA  %>% 
+  filter(date < as.POSIXct("2024-01-01 00:00:00", tz = "UTC"))
+
+
+```
+
+
+```{r}
+
+# Prepare your data
+response <- df_CH_DA_train$day_ahead_price_ch
+external_regressors <- df_CH_DA_train[, c("day_ahead_price_de", "day_ahead_price_at")]  # Replace with your actual regressor names
+
+# Combine response and regressors into one data frame
+df_combined <- cbind(response, external_regressors)
+
+garch_model <- garchFit(formula = ~ arma(1, 1) + garch(1, 1),
+                        data = response,  # Provide the entire data frame
+                        trace = FALSE)
+
+# Print the summary of the model
+summary(garch_model)
+
+
+```
+
+
+```{r}
+prediction_horizon= 24
+forecast_CH_DA <- predict(garch_model, n.ahead = prediction_horizon)
+response_test= df_CH_DA_test$day_ahead_price_ch[0:prediction_horizon]
+
+#Plotting out of sample performance
+plot(response_test, type="l", main="Swiss Day Ahead Prices - Predictions",  xlab = " ", ylab = "Price", xaxt = "n", ylim=c(0,350))
+lines(forecast_CH_DA$meanForecast, col="red")
+axis(1, at = seq(1, 743, by = 360), labels = df_CH_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
+```
+
+```{r}
+, "auction_price_de_ch", "day_ahead_price_at", "day_ahead_price_de","day_ahead_price_fr", "day_ahead_price_it", "cal_day_in_month", "cal_day_in_week", "cal_hour_in_day", "cal_month","cal_quarter","cal_week_in_year", "cal_year"
+```
+
+
+```{r}
+
+# Initialize the training data
+df_combined <- df_CH_DA_train  # Assuming this data frame includes all necessary variables
+
+# Define prediction horizon
+prediction_horizon <- 24
+
+# Initialize a list to store forecasts
+all_forecasts <- c()
+
+i=1
+# Loop through each 24-hour period in your test dataset
+for (k in seq(1:nrow(df_CH_DA_test))) {
+    if (i + prediction_horizon > nrow(df_CH_DA_test)) {
+        break  # Avoid running out of data
+    }
+  print(i)
+    print("check 1")
+  
+    # Fit GARCH model
+    response <- df_combined$day_ahead_price_ch
+    external_regressors <- df_combined[, c("day_ahead_price_de", "day_ahead_price_at")]
+    garch_model <- garchFit(formula = ~ arma(2, 2) + garch(1, 1),
+                            data = response,  # Use only the response for the GARCH model
+                            trace = FALSE)
+  print("check 2")
+    # Predict the next 24 hours
+    forecast <- predict(garch_model, n.ahead = prediction_horizon)
+    all_forecasts=c(all_forecasts,forecast$meanForecast)
+    # Add actual values for the next 24 hours to the training data
+    new_data <- df_CH_DA_test[i:(i + prediction_horizon - 1), ]
+    df_combined <- rbind(df_combined, new_data)
+  print("check 3")
+    # Increment by prediction horizon for the next iteration
+    i <- i + prediction_horizon
+}
+
+# Now, all_forecasts contains all the prediction results
+
+```
+
+```{r}
+prediction_horizon= length(all_forecasts)
+forecast_CH_DA <- all_forecasts
+response_test= df_CH_DA_test$day_ahead_price_ch[0:prediction_horizon]
+
+#Plotting out of sample performance
+plot(response_test, type="l", main="Swiss Day Ahead Prices - Predictions",  xlab = " ", ylab = "Price", xaxt = "n", ylim=c(0,350))
+lines(forecast_CH_DA, col="red")
+axis(1, at = seq(1, 743, by = 360), labels = df_CH_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
+```
+```{r}
+save(all_forecasts, file = "forecasts_predictive_Swiss_DA_fGarch.RData")
+print("saved")
+```
+
+```{r}
+library(yardstick)
+rsquared= rsq_vec(as.numeric(response_test),as.numeric(forecast_CH_DA))
+rmse=  sqrt(mean((response_test -forecast_CH_DA)^2))
+MAE= mean(response_test -forecast_CH_DA)
+```
+
+```{r}
+df_CH_DA_test$date <- ymd_hms(df_CH_DA_test$date, tz = "UTC")
+df_CH_DA_test$date<- format(df_CH_DA_test$date, "%d/%m/%Y %H:%M")
+
+df_scores= data.frame(date= df_CH_DA_test$date[1:720], .pred= forecast_CH_DA, acutal=response_test )
+
+# Assuming 'df' is your dataframe
+write.csv(df_scores, "/Users/olivier/Documents/ETH 2. Semester¨/Statslab/Scores DA prices/1 - GARCH - Prediction - CH - Data Predictive/holdout_predictions.csv", row.names = FALSE)
+
+
+print("saved")
+
+```
