@@ -1,0 +1,190 @@
+---
+title: "fastTS Analysis - _ch_de"
+author: "Federico Deotto"
+date: "2024-04-28"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(lubridate)
+library(ggsci)
+library(scales)
+library(shiny)
+library(ncvreg)
+
+library(fastTS)
+library(xts)
+
+
+source('builtin_functions.R')
+
+
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Default theme for charts
+theme_set(
+  theme_bw() +
+    theme(  
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(
+        face = "italic", size = 10, colour = "green50"
+      )
+    )
+)
+
+```
+
+## The Goal
+
+Study the models adapted fro the day_ahead_price_ch_de 
+
+```{r}
+#df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed_shifting_a.csv") %>% 
+#  select(date, day_ahead_price_ch_de) %>% 
+#  slice(25:n()) %>% 
+#  mutate( day_ahead_price_ch_de_log = boxcox_transform(day_ahead_price_ch_de, lambda = 0)) 
+```
+
+```{r}
+first_cut <- as.POSIXct("2021-06-30 23:00:00", tz = "UTC")
+second_cut <- as.POSIXct("2022-12-31 23:00:00", tz = "UTC")
+```
+
+# FULL TIME WINDOW
+It is clear that are present 4 different huge volatility clusters. This will make the modelling difficult also with the splitting in 3 subwindow.
+
+# A
+
+```{r}
+mod <- readRDS("fastTS_ch_de/mod_a_1_ch_de.rds")
+read_coef(mod)
+model <- mod$fits[[1]]  
+sum_stat <- model_selected(mod, model, p.train = 0.8)
+rm(mod, model, sum_stat)
+```
+
+# B
+
+```{r}
+mod <- readRDS("fastTS_ch_de/mod_b_1_ch_de.rds")
+read_coef(mod)
+model <- mod$fits[[1]]  
+sum_stat <- model_selected(mod, model, p.train = 0.8)
+rm(mod, model, sum_stat)
+```
+
+# C
+```{r}
+mod <- readRDS("fastTS_ch_de/mod_c_1_ch_de.rds")
+read_coef(mod)
+model <- mod$fits[[1]]  
+sum_stat <- model_selected(mod, model, p.train = 0.8)
+rm(mod, model, sum_stat)
+```
+
+
+# First Period 
+
+# A
+ACF $ PACF present a good behavior but all other diagnostics are not promising.
+```{r}
+mod_a <- readRDS("fastTS_ch_de/mod_a_2_ch_de.rds")
+read_coef(mod_a)
+model_a <- mod_a$fits[[1]]  
+sum_stat <- model_selected(mod_a, model_a, p.train = 0.8)
+rm(mod_a, model_a, sum_stat)
+```
+
+# B
+This model is similar to A BUT clearly worst in PACF.
+```{r}
+mod_b <- readRDS("fastTS_ch_de/mod_b_2_ch_de.rds")
+read_coef(mod_b)
+model_b <- mod_b$fits[[1]]  
+sum_stat <- model_selected(mod_b, model_b, p.train = 0.8)
+rm(mod_b, model_b, sum_stat)
+```
+
+# C
+```{r}
+mod <- readRDS("fastTS_ch_de/mod_c_2_ch_de.rds")
+read_coef(mod)
+model <- mod$fits[[1]]  
+sum_stat <- model_selected(mod, model, p.train = 0.8)
+rm(mod, model, sum_stat)
+```
+
+# Second Period
+
+# A
+PACF not great. ACF ok. Rest to forget.
+```{r}
+mod <- readRDS("fastTS_ch_de/mod_a_3_ch_de.rds")
+read_coef(mod)
+model <- mod$fits[[1]]  
+sum_stat <- model_selected(mod, model, p.train = 0.8)
+rm(mod, model, sum_stat)
+```
+
+# B
+```{r}
+mod <- readRDS("fastTS_ch_de/mod_b_3_ch_de.rds")
+read_coef(mod)
+model <- mod$fits[[1]]  
+sum_stat <- model_selected(mod, model, p.train = 0.8)
+rm(mod, model, sum_stat)
+```
+
+# C
+```{r}
+mod <- readRDS("fastTS_ch_de/mod_c_3_ch_de.rds")
+read_coef(mod)
+model <- mod$fits[[1]]  
+sum_stat <- model_selected(mod, model, p.train = 0.8)
+rm(mod, model, sum_stat)
+```
+
+
+# Third Period
+
+
+The model can be refitted witnh squared Y. How to take account of negativ efitted?
+
+
+
+
+# A
+This model reach good results in term of ACF$PACF. Not in normality errors, indeed absolute resisuals preset a clear dependece. 
+Try adding Y^2 component and dummy.
+```{r}
+mod <- readRDS("fastTS_ch_de/mod_a_4_ch_de.rds")
+read_coef(mod)
+model <- mod$fits[[1]]  
+sum_stat <- model_selected(mod, model, p.train = 0.8)
+rm(mod, model, sum_stat)
+```
+
+# B
+This model clearly present MA, and AR component not incorporeted into the model.
+```{r}
+mod <- readRDS("fastTS_ch_de/mod_b_4_ch_de.rds")
+read_coef(mod)
+model <- mod$fits[[1]]  
+sum_stat <- model_selected(mod, model, p.train = 0.8)
+rm(mod, model, sum_stat)
+```
+
+# C
+Not good in anyway, mabye normality.
+```{r}
+mod <- readRDS("fastTS_ch_de/mod_c_4_ch_de.rds")
+read_coef(mod)
+model <- mod$fits[[1]]  
+sum_stat <- model_selected(mod, model, p.train = 0.8)
+rm(mod, model, sum_stat)
+```
+

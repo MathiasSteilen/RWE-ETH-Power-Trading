@@ -1,0 +1,268 @@
+---
+title: "VECM approach_tq"
+author: "Tito Quadri"
+date: "2024-04-24"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(lubridate)
+library(ggsci)
+library(scales)
+
+
+
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Default theme for charts
+theme_set(
+  theme_bw() +
+    theme(  
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(
+        face = "italic", size = 10, colour = "green50"
+      )
+    )
+)
+
+```
+
+# Goal
+
+Adapt a VECM (vector error correcting model).
+
+
+```{r, warning=FALSE, echo=FALSE}
+df <- read_csv("../00 Data Retrieval and Cleaning/0_df_final_imputed.csv")
+```
+
+# additional datasets
+
+```{r}
+
+#drop ATC (both ways) to avoid multicollinearity (since it is almost the same as allocatedCapacity) 
+df <- df %>% select(-contains("ATC_"))
+
+df <- df %>% 
+  mutate(date = with_tz(date, tzone = "UTC"))
+
+df <- df %>%
+  mutate_at(vars(-date), as.numeric)
+
+dummies_columns <- df %>%
+  select(contains("_missing_dummy")) %>% 
+  colnames()
+
+no_dummies_df<- df %>%
+  select(-contains("_missing_dummy"))
+
+no_dummies_df_ch <- no_dummies_df %>%
+  select("date", contains("_ch"))
+
+factor_colums <- c('dst', dummies_columns)
+
+
+
+df <- df %>%
+  mutate_at(vars(factor_colums), factor)
+```
+
+create calendar features
+
+- Careful: "date" is in UTC, hour in day in our time zone will change, need to include interaction with the "dst" variable
+
+# Cutting of time series 
+
+The timestamps are selected arbitrarily. The guiding idea behind the choice was to roughly recover some stationarity conditions in the log-transformed price.
+```{r}
+first_cut <- as.POSIXct("2021-06-30 23:00:00", tz = "UTC")
+second_cut <- as.POSIXct("2022-12-31 23:00:00", tz = "UTC")
+```
+
+Create a data.frame that contains exclusively the box_transformation of the four prices and their timestamp (date).
+```{r}
+prices_name <- c('day_ahead_price_de', 
+                 'day_ahead_price_ch',
+                 'auction_price_ch_de',
+                 'auction_price_de_ch')
+df_box <- df %>% 
+  select(c('date', prices_name))
+
+boxcox_transform <- function(x, lambda) {
+  y = x - min(x) + 1
+  if (lambda == 0) {
+    log(y)
+  } else {
+    (y^lambda - 1) / lambda
+  }
+}
+
+
+df_log <- df_box %>%
+  mutate_at(vars(all_of(prices_name)), ~ boxcox_transform(., lambda = 0))
+```
+
+# Cointegration
+
+## between the two prices day ahead prices
+```{r}
+library(urca)
+
+price_de.vecm<- ca.jo(select(df_box, -c('date',
+                 'auction_price_ch_de','auction_price_de_ch')),
+                 ecdet = "const", type = "eigen", spec = "longrun", K=2)
+
+summary(price_de.vecm)
+
+```
+Clearly, the two prices are cointegrated (as expected). 
+
+
+## between day ahead price_ch and all the ch electricity production variables
+```{r}
+
+library(vars)
+
+dfff<- select(no_dummies_df_ch , -c('date','auction_price_ch_de',
+                       'auction_price_de_ch', 'crossborder_actual_flow_it_ch', 'hydro_reservoir_storage_ch'))
+
+
+dfff<- dfff[1:11] %>% select("day_ahead_price_ch", everything())
+
+n=24
+
+dfff_train<- dfff[1:(nrow(dfff) - n), ]
+dfff_test <- dfff[(nrow(dfff) - n):nrow(dfff), ]
+
+coint_price_ch<- ca.jo(dfff_train, ecdet = "const", type = "eigen", spec = "longrun",
+                       K=2)
+
+summary(coint_price_ch)
+
+
+vecm<-cajorls(coint_price_ch, r=10)
+
+vec2var<- vec2var(coint_price_ch, r=10)
+
+pred_vec2var_ca.jo<-predict(vec2var, n.ahead = n)
+
+
+x11(); 
+par(mai=rep(0.4, 4)); 
+plot(x=1:n, y=pred_vec2var_ca.jo[["fcst"]][["day_ahead_price_ch"]][,1])
+
+RMSE <- mean((pred_vec2var_ca.jo[["fcst"]][["day_ahead_price_ch"]][,1]-dfff_test$day_ahead_price_ch)^2) %>% sqrt()
+
+```
+
+
+### Cross Validation
+
+```{r}
+
+n<-24
+d <- seq(from = 35000, to = 44510, by=n+1) 
+RMSE<-numeric(length(d))
+count<-1
+
+for (i in d){
+  count <- 1+count
+  dfff_train<- dfff[(1:i), ]
+  dfff_test <- dfff[(i:i+n), ]
+  
+  coint_price_ch<- ca.jo(dfff_train, ecdet = "const", type = "eigen", spec = "longrun",
+                       K=2)
+  vecm<-cajorls(coint_price_ch, r=10)
+  vec2var<- vec2var(coint_price_ch, r=10)
+  pred_vec2var_ca.jo<-predict(vec2var, n.ahead = n)
+
+  RMSE[count] <- mean((pred_vec2var_ca.jo[["fcst"]][["day_ahead_price_ch"]][,1] -
+                  dfff_test$day_ahead_price_ch)^2) %>% sqrt()
+}
+
+mean(RMSE[-length(RMSE)])
+
+```
+
+## between day ahead price_ch and all the ch electricity production variables
+```{r}
+library(urca)
+
+price_de.vecm<- ca.jo(select(df_box, -c('date',
+                 'auction_price_ch_de','auction_price_de_ch')),
+                 ecdet = "const", type = "eigen", spec = "longrun", K=2)
+
+summary(price_de.vecm)
+
+```
+Clearly, the two prices are cointegrated (as expected). 
+
+
+## between day ahead price_ch and all the ch trade electricity variables
+```{r}
+
+library(vars)
+
+df_trade<- select(no_dummies_df_ch , -c('date','auction_price_ch_de',
+                       'auction_price_de_ch', 'hydro_reservoir_storage_ch')) %>% select("day_ahead_price_ch", everything())
+
+df_trade<- df_trade[,-(2:10)] %>% select(-contains("forecast_ch_"),-c("crossborder_actual_flow_ch_it", "crossborder_actual_flow_ch_at"))
+
+n=24
+
+
+coint_price_ch<- ca.jo(df_trade, ecdet = "const", type = "eigen", spec = "longrun",
+                       K=2)
+
+summary(coint_price_ch)
+
+vecm<-cajorls(coint_price_ch, r=10)
+
+vec2var<- vec2var(coint_price_ch, r=10)
+
+pred_vec2var_ca.jo<-predict(vec2var, n.ahead = n)
+
+
+x11(); 
+par(mai=rep(0.4, 4)); 
+plot(x=1:n, y=pred_vec2var_ca.jo[["fcst"]][["day_ahead_price_ch"]][,1])
+
+RMSE <- mean((pred_vec2var_ca.jo[["fcst"]][["day_ahead_price_ch"]][,1]-dfff_test$day_ahead_price_ch)^2) %>% sqrt()
+
+```
+
+
+### Cross Validation
+
+```{r}
+
+n<-24
+d <- seq(from = 35000, to = 44510, by=n+1) 
+RMSE<-numeric(length(d))
+count<-1
+
+for (i in d){
+  count <- 1+count
+  df_train<- df_trade[(1:i), ]
+  df_test <- df_trade[(i:i+n), ]
+  
+  coint_price_ch<- ca.jo(df_train, ecdet = "const", type = "eigen", spec = "longrun",
+                       K=2)
+  vecm<-cajorls(coint_price_ch, r=10)
+  vec2var<- vec2var(coint_price_ch, r=10)
+  pred_vec2var_ca.jo<-predict(vec2var, n.ahead = n)
+
+  RMSE[count] <- mean((pred_vec2var_ca.jo[["fcst"]][["day_ahead_price_ch"]][,1] -
+                  dfff_test$day_ahead_price_ch)^2) %>% sqrt()
+}
+
+mean(RMSE[-length(RMSE)])
+
+```

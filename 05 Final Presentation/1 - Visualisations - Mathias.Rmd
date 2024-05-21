@@ -1,0 +1,661 @@
+---
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(ggsci)
+library(scales)
+library(tidymodels)
+
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Default theme for charts
+theme_set(
+  theme_bw() +
+    theme(  
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(
+        face = "italic", size = 10, colour = "grey50"
+      )
+    )
+)
+
+```
+
+### Fig 1: Three regimes
+
+```{r}
+# Read data
+df = read_csv(
+  "../00 Data Retrieval and Cleaning/0_df_final_ch-de_UTC.csv"
+) |> 
+  arrange(date)
+
+# Make the chart
+df |> 
+  select(date, day_ahead_price_ch, day_ahead_price_de) |> 
+  pivot_longer(-date) |> 
+  filter(value > -200) |> 
+  mutate(name = ifelse(str_detect(name, "_ch"), "CH", "DE")) |> 
+  ggplot(aes(date, value)) +
+  geom_line() +
+  facet_wrap(~ name, scales = "free", ncol = 1) +
+  labs(title = "Spot Prices", y = "EUR", x = "Date")
+
+# Save the chart
+ggsave(
+  filename = "01 - Spot price regimes.png", unit = "cm", dpi = 300, 
+  width = 25, height = 10
+)
+```
+
+### Fig 2: Train and Test Period
+
+```{r}
+# Read data
+df = read_csv(
+  "../00 Data Retrieval and Cleaning/0_df_final_ml_predictive.csv"
+) |> 
+  arrange(date)
+
+# Make the chart
+df |> 
+  select(date, day_ahead_price_ch) |> 
+  ggplot(aes(date, day_ahead_price_ch)) +
+  geom_line() +
+  labs(title = "Day-Ahead Spot Price", y = "EUR", x = "Date")
+
+# Save the chart
+ggsave(
+  filename = "02 - Train Test.png", unit = "cm", dpi = 300, 
+  width = 25, height = 8
+)
+```
+
+### Fig 3: Train and Test Period for tuning
+
+```{r}
+# Read data
+df = read_csv(
+  "../00 Data Retrieval and Cleaning/0_df_final_ml_predictive.csv"
+) |> 
+  arrange(date)
+
+# Make the chart
+df |> 
+  filter(year(date) == 2023) |> 
+  group_by(date = date(date)) |> 
+  summarise(price = mean(day_ahead_price_ch)) |> 
+  ggplot(aes(date, price)) +
+  geom_line() +
+  labs(y = "EUR", x = "Date")
+
+# Save the chart
+ggsave(
+  filename = "04 - Train Test.png", unit = "cm", dpi = 300, 
+  width = 10, height = 6
+)
+```
+
+### Fig 4: Testing Period
+
+```{r}
+# Read data
+df = read_csv(
+  "../00 Data Retrieval and Cleaning/0_df_final_ml_predictive.csv"
+) |> 
+  arrange(date)
+
+# Make the chart
+df |> 
+  filter(year(date) == 2024) |> 
+  ggplot(aes(date, day_ahead_price_ch)) +
+  geom_line() +
+  labs(y = "EUR", x = "Date")
+
+# Save the chart
+ggsave(
+  filename = "05 - Test.png", unit = "cm", dpi = 300, 
+  width = 10, height = 6
+)
+```
+
+### Best Models
+
+
+### Fig 4: Testing Period
+
+CH
+
+```{r}
+# CH Predictive
+read_csv("../01 Task 1 - Spot Price/1 - LGBM - Prediction - CH - Data Predictive/holdout_predictions.csv") |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(date, value, colour = name)) +
+  geom_line() +
+  labs(title = "OOS Predictions", 
+       y = "Swiss Spot (EUR)", x = "Date",
+       colour = "Type") +
+  scale_colour_manual(values = c("firebrick", "grey50")) +
+  theme(legend.position = "top") +
+  aes(group=rev(name))
+
+# Save the chart
+ggsave(
+  filename = "07 - CH predictive.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+
+read_csv("../01 Task 1 - Spot Price/1 - LGBM - Prediction - CH - Data Predictive/holdout_predictions.csv") |> 
+  mutate(res = actual - .pred) |> 
+  ggplot(aes(.pred, res)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "OOS Residuals", x = "Fitted Value", y = "Residual") +
+  geom_smooth()
+
+# Save the chart
+ggsave(
+  filename = "07 - CH predictive TA.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+```
+
+```{r}
+# CH Theoretical
+read_csv("../01 Task 1 - Spot Price/1 - LGBM - Prediction - CH - Data Theoretical/holdout_predictions.csv") |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(date, value, colour = name)) +
+  geom_line() +
+  labs(title = "OOS Predictions", 
+       y = "Swiss Spot (EUR)", x = "Date",
+       colour = "Type") +
+  scale_colour_manual(values = c("firebrick", "grey50")) +
+  theme(legend.position = "top") +
+  aes(group=rev(name))
+
+# Save the chart
+ggsave(
+  filename = "08 - CH theoretical.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+
+read_csv("../01 Task 1 - Spot Price/1 - LGBM - Prediction - CH - Data Theoretical/holdout_predictions.csv") |> 
+  mutate(res = actual - .pred) |> 
+  ggplot(aes(.pred, res)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "OOS Residuals", x = "Fitted Value", y = "Residual") +
+  geom_smooth()
+
+# Save the chart
+ggsave(
+  filename = "08 - CH theoretical TA.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+```
+
+DE
+
+```{r}
+# DE Predictive
+read_csv("../01 Task 1 - Spot Price/1 - LGBM - Prediction - DE - Data Predictive/holdout_predictions.csv") |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(date, value, colour = name)) +
+  geom_line() +
+  labs(title = "OOS Predictions", 
+       y = "German Spot (EUR)", x = "Date",
+       colour = "Type") +
+  scale_colour_manual(values = c("firebrick", "grey50")) +
+  theme(legend.position = "top") +
+  aes(group=rev(name))
+
+# Save the chart
+ggsave(
+  filename = "09 - DE predictive.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+
+read_csv("../01 Task 1 - Spot Price/1 - LGBM - Prediction - DE - Data Predictive/holdout_predictions.csv") |> 
+  mutate(res = actual - .pred) |> 
+  ggplot(aes(.pred, res)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "OOS Residuals", x = "Fitted Value", y = "Residual") +
+  geom_smooth()
+
+# Save the chart
+ggsave(
+  filename = "09 - DE predictive TA.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+```
+
+```{r}
+# DE Theoretical
+read_csv("../01 Task 1 - Spot Price/1 - LGBM - Prediction - DE - Data Theoretical/holdout_predictions.csv") |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(date, value, colour = name)) +
+  geom_line() +
+  labs(title = "OOS Predictions", 
+       y = "German Spot (EUR)", x = "Date",
+       colour = "Type") +
+  scale_colour_manual(values = c("firebrick", "grey50")) +
+  theme(legend.position = "top") +
+  aes(group=rev(name))
+
+# Save the chart
+ggsave(
+  filename = "10 - DE theoretical.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+
+read_csv("../01 Task 1 - Spot Price/1 - LGBM - Prediction - DE - Data Theoretical/holdout_predictions.csv") |> 
+  mutate(res = actual - .pred) |> 
+  ggplot(aes(.pred, res)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "OOS Residuals", x = "Fitted Value", y = "Residual") +
+  geom_smooth()
+
+# Save the chart
+ggsave(
+  filename = "10 - DE theoretical TA.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+```
+
+```{r}
+# CHDE Predictive
+read_csv("../02 Task 2 - Transmission Price/1 - LGBM - Prediction - CHDE - Data Predictive/holdout_predictions.csv") |> 
+  mutate(.pred = ifelse(.pred < 0, 0, .pred)) |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(date, value, colour = name)) +
+  geom_line() +
+  labs(title = "OOS Predictions", 
+       y = "CHDE Tr. Pr. (EUR)", x = "Date",
+       colour = "Type") +
+  scale_colour_manual(values = c("firebrick", "grey50")) +
+  theme(legend.position = "top") +
+  aes(group=rev(name))
+
+# Save the chart
+ggsave(
+  filename = "11 - CHDE predictive.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+
+read_csv("../02 Task 2 - Transmission Price/1 - LGBM - Prediction - CHDE - Data Predictive/holdout_predictions.csv") |> 
+  mutate(res = actual - .pred) |> 
+  ggplot(aes(.pred, res)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "OOS Residuals", x = "Fitted Value", y = "Residual") +
+  geom_smooth()
+
+# Save the chart
+ggsave(
+  filename = "11 - CHDE predictive TA.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+```
+
+```{r}
+# CHDE Theoretical
+read_csv("../02 Task 2 - Transmission Price/1 - fastTS - Prediction - CHDE - Data Theoretical/holdout_predictions.csv") |> 
+  mutate(date = dmy_hm(date)) |> 
+  mutate(.pred = ifelse(.pred < 0, 0, .pred)) |>
+  select(date, .pred, actual) |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(date, value, colour = name)) +
+  geom_line() +
+  labs(title = "OOS Predictions", 
+       y = "CHDE Tr. Pr. (EUR)", x = "Date",
+       colour = "Type") +
+  scale_colour_manual(values = c("firebrick", "grey50")) +
+  theme(legend.position = "top") +
+  aes(group=rev(name))
+
+# Save the chart
+ggsave(
+  filename = "12 - CHDE theoretical.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+
+read_csv("../02 Task 2 - Transmission Price/1 - fastTS - Prediction - CHDE - Data Theoretical/holdout_predictions.csv") |> 
+  mutate(res = actual - .pred) |> 
+  ggplot(aes(.pred, res)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "OOS Residuals", x = "Fitted Value", y = "Residual") +
+  geom_smooth()
+
+# Save the chart
+ggsave(
+  filename = "12 - CHDE theoretical TA.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+```
+
+```{r}
+# DECH Predictive
+read_csv("../02 Task 2 - Transmission Price/1 - LGBM - Prediction - DECH - Data Predictive/holdout_predictions.csv") |> 
+  mutate(.pred = ifelse(.pred < 0, 0, .pred)) |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(date, value, colour = name)) +
+  geom_line() +
+  labs(title = "OOS Predictions", 
+       y = "CHDE Tr. Pr. (EUR)", x = "Date",
+       colour = "Type") +
+  scale_colour_manual(values = c("firebrick", "grey50")) +
+  theme(legend.position = "top") +
+  aes(group=rev(name))
+
+# Save the chart
+ggsave(
+  filename = "13 - DECH predictive.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+
+read_csv("../02 Task 2 - Transmission Price/1 - LGBM - Prediction - DECH - Data Predictive/holdout_predictions.csv") |> 
+  mutate(res = actual - .pred) |> 
+  ggplot(aes(.pred, res)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "OOS Residuals", x = "Fitted Value", y = "Residual") +
+  geom_smooth()
+
+# Save the chart
+ggsave(
+  filename = "13 - DECH predictive TA.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+```
+
+```{r}
+# DECH Theoretical
+read_csv("../02 Task 2 - Transmission Price/1 - LGBM - Prediction - DECH - Data Theoretical/holdout_predictions.csv") |> 
+  mutate(.pred = ifelse(.pred < 0, 0, .pred)) |> 
+  pivot_longer(-date) |> 
+  ggplot(aes(date, value, colour = name)) +
+  geom_line() +
+  labs(title = "OOS Predictions", 
+       y = "CHDE Tr. Pr. (EUR)", x = "Date",
+       colour = "Type") +
+  scale_colour_manual(values = c("firebrick", "grey50")) +
+  theme(legend.position = "top") +
+  aes(group=rev(name))
+
+# Save the chart
+ggsave(
+  filename = "14 - DECH theoretical.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+
+read_csv("../02 Task 2 - Transmission Price/1 - LGBM - Prediction - DECH - Data Theoretical/holdout_predictions.csv") |> 
+  mutate(res = actual - .pred) |> 
+  ggplot(aes(.pred, res)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "OOS Residuals", x = "Fitted Value", y = "Residual") +
+  geom_smooth()
+
+# Save the chart
+ggsave(
+  filename = "14 - DECH theoretical TA.png", unit = "cm", dpi = 300, 
+  width = 18, height = 9
+)
+
+```
+
+
+### The Target Variable
+
+```{r}
+df |> 
+  transmute(auction_price_ch_de, 
+            spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  ggplot(aes(spread, auction_price_ch_de)) +
+  geom_point(alpha = 0.3) +
+  geom_abline()
+```
+
+```{r}
+df |> 
+  transmute(auction_price_de_ch, 
+            spread = day_ahead_price_ch - day_ahead_price_de) |> 
+  ggplot(aes(spread, auction_price_de_ch)) +
+  geom_point(alpha = 0.3) +
+  geom_abline()
+```
+
+Generally, the higher the spread, the higher the auction price (makes sense), but there are plenty of times still where the JAO price is much too low. This chart does not reveal a structural mispricing of the auction.
+
+
+### Seasonality of target
+
+Distribution by year, month, week, day of week, hour in day
+
+- No trend in the auction prices over the years were found
+
+```{r}
+jao = bind_rows(
+  read_csv("../00 Data Retrieval and Cleaning/Raw Data/jao_prices_CH-DE.csv") |> 
+    transmute(date = delivery_begin_time_ch, price, direction = "chde"),
+  read_csv("../00 Data Retrieval and Cleaning/Raw Data/jao_prices_DE-CH.csv") |> 
+    transmute(date = delivery_begin_time_ch, price, direction = "dech")
+) |> 
+  drop_na()
+
+
+jao |> 
+  group_by(direction, year = floor_date(date, unit = "month")) |> 
+  summarise(price = mean(price, na.rm = T)) |> 
+  ggplot(aes(year, price)) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(~ direction, scales = "free") +
+  geom_smooth(method = "lm")
+```
+
+```{r}
+df |> 
+  mutate(month = month(date)) |> 
+  ggplot(aes(month, auction_price, group = month)) +
+  geom_boxplot(outlier.colour = NA) +
+  coord_cartesian(ylim = c(0, 2.5))
+```
+
+Auction prices are higher in the summer months, this ties in well with the spread being positive much more often over the summer months:
+
+```{r}
+df |> 
+  transmute(date, auction_price_ch_de, 
+            spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  mutate(month = month(date)) |> 
+  ggplot(aes(month, spread, group = month)) +
+  geom_boxplot(outlier.colour = NA) +
+  coord_cartesian(ylim = c(-75, 50))
+
+df |> 
+  transmute(date, auction_price_de_ch, 
+            spread = day_ahead_price_ch - day_ahead_price_de) |> 
+  mutate(month = month(date)) |> 
+  ggplot(aes(month, spread, group = month)) +
+  geom_boxplot(outlier.colour = NA) +
+  coord_cartesian(ylim = c(-75, 50))
+
+df |> 
+  transmute(date, auction_price_ch_de, 
+            spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  mutate(month = month(date)) |> 
+  group_by(month) |> 
+  summarise(positive = mean(spread > 0)) |> 
+  ggplot(aes(month, positive)) +
+  geom_line() +
+  geom_point() +
+  labs(y = "Fraction of positive spread hours", x = "Month in year")
+```
+
+Similar picture for week in year:
+
+```{r}
+df |> 
+  mutate(week = week(date)) |> 
+  ggplot(aes(week, auction_price_ch_de, group = week)) +
+  geom_boxplot(outlier.colour = NA) +
+  coord_cartesian(ylim = c(0, 2.5))
+
+df |> 
+  transmute(date, auction_price, 
+            spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  mutate(week = week(date)) |> 
+  group_by(week) |> 
+  summarise(positive = mean(spread > 0)) |> 
+  ggplot(aes(week, positive)) +
+  geom_line() +
+  geom_point() +
+  labs(y = "Fraction of positive spread hours", x = "Month in year")
+```
+
+There is a VERY strong structure in the hour in day.
+
+```{r}
+jao |> 
+  mutate(hour = hour(date)) |> 
+  group_by(hour, direction) |> 
+  summarise(lower = quantile(price, 0.25),
+            middle = quantile(price, 0.5),
+            upper = quantile(price, 0.75)) |> 
+  ggplot(aes(x = hour, group = hour)) +
+  geom_point(aes(y = middle)) +
+  geom_errorbar(aes(ymin = lower, ymax = upper)) +
+  facet_wrap(~ direction, scales = "free")
+```
+
+Dig into this by quarter: Weirdly, the spread exhibits a similar structure but the JAO pricing does not. Analyse the mispricing below.
+
+```{r}
+jao |> 
+  mutate(hour = hour(date), quarter = quarter(date)) |> 
+  filter(direction == "chde") |> 
+  group_by(hour, quarter, direction) |> 
+  summarise(lower = quantile(price, 0.25),
+            middle = quantile(price, 0.5),
+            upper = quantile(price, 0.75)) |> 
+  ggplot(aes(x = hour, group = hour)) +
+  geom_point(aes(y = middle)) +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.25, alpha = 0.5) +
+  facet_wrap(~ quarter + direction, ncol = 4)
+```
+
+### Over vs. underpaying
+
+Definitions:
+- Overpaying: JAO Price > Spread
+- Underpaying: JAO Price < Spread
+
+Attention: This only holds in situation where spread > 0.
+
+```{r}
+df |> 
+  transmute(
+    date, 
+    auction_price = auction_price_de_ch, 
+    spread = day_ahead_price_ch - day_ahead_price_de
+  ) |> 
+  group_by(hour = hour(date), quarter = quarter(date)) |> 
+  summarise(
+    auction_price = mean(auction_price),
+    spread = mean(spread)
+  ) |> 
+  ungroup() |> 
+  pivot_longer(-c(hour, quarter)) |> 
+  ggplot(aes(hour, value, linetype = name)) +
+  geom_line() +
+  annotate("rect", xmin = -10, xmax = 30, ymin = -500, ymax = 0,
+            fill = "black", alpha = 0.1) +
+  coord_cartesian(ylim = c(-30, 30), xlim = c(0, 25)) +
+  labs(
+    title = "Average Spread and JAO Price for DE → CH",
+    x = "Hour in Day", y = "EUR",
+    subtitle = "Facetted by quarter"
+    ) +
+  facet_wrap(~ quarter, scales = "free")
+
+df |> 
+  transmute(
+    date, 
+    auction_price = auction_price_ch_de, 
+    spread = day_ahead_price_de - day_ahead_price_ch
+  ) |> 
+  group_by(hour = hour(date), quarter = quarter(date)) |> 
+  summarise(
+    auction_price = mean(auction_price),
+    spread = mean(spread)
+  ) |> 
+  ungroup() |> 
+  pivot_longer(-c(hour, quarter)) |> 
+  ggplot(aes(hour, value, linetype = name)) +
+  geom_line() +
+  annotate("rect", xmin = -10, xmax = 30, ymin = -500, ymax = 0,
+            fill = "black", alpha = 0.1) +
+  coord_cartesian(ylim = c(-30, 30), xlim = c(0, 25)) +
+  labs(
+    title = "Average Spread and JAO Price for CH → DE",
+    x = "Hour in Day", y = "EUR",
+    subtitle = "Facetted by quarter"
+    ) +
+  facet_wrap(~ quarter, scales = "free")
+
+```
+
+### Seasonality of spread
+
+```{r}
+df |>
+  transmute(date, spread = day_ahead_price_de - day_ahead_price_ch) |> 
+  mutate(hour = hour(date), quarter = quarter(date)) |> 
+  ggplot(aes(hour, spread, group = hour)) +
+  geom_boxplot(outlier.colour = NA) +
+  annotate("rect", xmin = -10, xmax = 30, ymin = -500, ymax = 0,
+            fill = "black", alpha = 0.1) +
+  coord_cartesian(ylim = c(-100, 100), xlim = c(0, 25)) +
+  facet_wrap(~ quarter, scales = "free") +
+  labs(title = "Spread: Germany minus Switzerland")
+
+df |>
+  transmute(date, spread = day_ahead_price_ch - day_ahead_price_de) |> 
+  mutate(hour = hour(date), quarter = quarter(date)) |> 
+  ggplot(aes(hour, spread, group = hour)) +
+  geom_boxplot(outlier.colour = NA) +
+  annotate("rect", xmin = -10, xmax = 30, ymin = -500, ymax = 0,
+            fill = "black", alpha = 0.1) +
+  coord_cartesian(ylim = c(-100, 100), xlim = c(0, 25)) +
+  facet_wrap(~ quarter, scales = "free") +
+  labs(title = "Spread: Switzerland minus Germany")
+```
+
+### Solar
+
+```{r}
+read_csv("../00 Data Retrieval and Cleaning/Raw Data/day_ahead_prices_DE_LU.csv") |> 
+  mutate(year = year(date), month = month(date), hour = hour(date)) |>
+  filter(year %in% c(2019, 2023)) |> 
+  group_by(year, hour, month) |> 
+  summarise(price = median(price, na.rm = T)) |> 
+  ggplot(aes(hour, price, colour = month, group = month)) +
+  geom_line() +
+  scale_colour_gradientn(
+    colours = c("skyblue", "firebrick", "skyblue"),
+    values = scales::rescale(c(1, 6, 12)),
+    guide = "colourbar"
+  ) +
+  labs(
+    title = "Effect of Solar Production on German Day Ahead Prices",
+    x = "Hour in Day", y = "EUR", colour = "Month"
+  ) + 
+  facet_wrap(~ year, scales = "free")
+
+ggsave(
+  filename = "06 - Solar Bathtub curve.png", unit = "cm", dpi = 300, 
+  width = 20, height = 10
+)
+```
+
