@@ -66,28 +66,46 @@ extract_lags <- function(beta) {
 
 extract_coefficient <- function(beta, response) {
   df <- enframe(beta, name = "name", value = "value") %>%
-    filter(value != 0)
+    filter(value != 0) 
   
-  # Separate positive and negative values
-  df_positive <- df %>% filter(value > 0)
-  df_positive <- df_positive %>% filter(value > quantile(value, .9))
-  df_negative <- df %>% filter(value < 0)
-  df_negative <- df_negative %>% filter(value < quantile(value, .1))
+  # Select top 10 coefficients by absolute value
+  df_top10 <- df %>% 
+    arrange(desc(abs(value))) %>% 
+    slice_head(n = 10)
   
-  # Plot for positive values
-  plot_positive <- ggplot(df_positive, aes(x = reorder(name, -value), y = value)) +
-    geom_bar(stat = "identity") +
-    labs(x = "Name", y = "Value", title = "Positive Coefficients", subtitle = response) +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  # Plot the top 10 coefficients
+  plot_top10 <- ggplot(df_top10, aes(x = reorder(name, abs(value)), y = abs(value), color = value > 0)) +
+    geom_point(size = 3) +
+    geom_line(aes(group = 1)) +
+    scale_y_log10() +
+    scale_color_manual(values = c("red", "blue"), labels = c("Negative", "Positive")) +
+    labs(x = "Name", y = "Absolute Value (Log Scale)", title = "10 Largest Coefficients in Absolute Terms.", subtitle = response, color = "Sign") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5))
   
-  # Plot for negative values
-  plot_negative <- ggplot(df_negative, aes(x = reorder(name, value), y = value)) +
-    geom_bar(stat = "identity") +
-    labs(x = "Name", y = "Value", title = "Negative Coefficients", subtitle = response) +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  print(plot_top10)
+}
+
+library(stringr)
+extract_coefficient_no_lag <- function(beta, response) {
+  df <- enframe(beta, name = "name", value = "value") %>%
+    filter(value != 0) %>%
+    filter(!str_detect(name, "^lag\\d+$"))  # Filter out lag coefficients
   
-  print(plot_positive)
-  print(plot_negative)
+  # Select top 10 coefficients by absolute value
+  df_top10 <- df %>% 
+    arrange(desc(abs(value))) %>% 
+    slice_head(n = 10)
+  
+  # Plot the top 10 coefficients
+  plot_top10 <- ggplot(df_top10, aes(x = reorder(name, abs(value)), y = abs(value), color = value > 0)) +
+    geom_point(size = 3) +
+    geom_line(aes(group = 1)) +
+    scale_y_log10() +
+    scale_color_manual(values = c("red", "blue"), labels = c("Negative", "Positive")) +
+    labs(x = "Name", y = "Absolute Value (Log Scale)", title = "10 Largest Coefficients in Absolute Terms.", subtitle = response, color = "Sign") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5))
+  
+  print(plot_top10)
 }
 
 
@@ -98,7 +116,7 @@ plot_lags <- function(lags, title, response) {
   ggplot(lags, aes(x = lag_position, y = value)) +
     geom_segment(aes(x = lag_position, xend = lag_position, y = 0, yend = value)) +
     geom_point(size = 0.9) +
-    geom_vline(xintercept = 24*7*(1:4), linetype = "dashed", color = "blue")+
+    geom_vline(xintercept = 24*(1:5), linetype = "dashed", color = "blue")+
     labs(title = title, x = "Lag Position", y = "Coefficient Value", subtitle = response)
 }
 
@@ -168,6 +186,7 @@ model_selected <- function(model_list, response) {
   beta_AICc <- model$beta[, best_idx[1]]
   lags_AICc <- extract_lags(beta_AICc)
   extract_coefficient(beta_AICc, response)
+  extract_coefficient_no_lag(beta_AICc, response)
   
   print(plot_lags(lags_AICc, "Lag Coefficients (AICc)", response))
 
@@ -231,7 +250,7 @@ model_selected <- function(model_list, response) {
   pl <- ggplot(acf_aic, aes(x = lag, y = acf)) +
     geom_segment(aes(x = lag, xend = lag, y = 0, yend = acf)) +
     geom_point() +
-    geom_vline(xintercept = 24*7*(1:4), linetype = "dashed", color = "blue")+
+    geom_vline(xintercept = 24*(1:5), linetype = "dashed", color = "blue")+
     geom_hline(yintercept = 0, linetype = "dashed") +
     geom_hline(yintercept = ci_aic, linetype = "dashed") +
     geom_hline(yintercept = -ci_aic, linetype = "dashed") +
@@ -242,7 +261,7 @@ model_selected <- function(model_list, response) {
   pl <- ggplot(pacf_aic, aes(x = lag, y = pacf)) +
     geom_segment(aes(x = lag, xend = lag, y = 0, yend = pacf)) +
     geom_point() +
-    geom_vline(xintercept = 24*7*(1:4), linetype = "dashed", color = "blue")+
+    geom_vline(xintercept = 24*(1:5), linetype = "dashed", color = "blue")+
     geom_hline(yintercept = 0, linetype = "dashed") +
     geom_hline(yintercept = ci_aic, linetype = "dashed") +
     geom_hline(yintercept = -ci_aic, linetype = "dashed") +
@@ -267,6 +286,7 @@ model_selected <- function(model_list, response) {
   beta_BIC <- model$beta[, best_idx[1]]
   lags_BIC <- extract_lags(beta_BIC)
   extract_coefficient(beta_BIC, response)
+  extract_coefficient_no_lag(beta_BIC, response)
   
   
   print(plot_lags(lags_BIC, "Lag Coefficients (BIC)", response))
@@ -320,7 +340,7 @@ model_selected <- function(model_list, response) {
   pl <- ggplot(acf_bic, aes(x = lag, y = acf)) +
     geom_segment(aes(x = lag, xend = lag, y = 0, yend = acf)) +
     geom_point() +
-    geom_vline(xintercept = 24*7*(1:4), linetype = "dashed", color = "blue")+
+    geom_vline(xintercept = 24*(1:5), linetype = "dashed", color = "blue")+
     geom_hline(yintercept = 0, linetype = "dashed") +
     geom_hline(yintercept = ci_bic, linetype = "dashed") +
     geom_hline(yintercept = -ci_bic, linetype = "dashed") +
@@ -331,7 +351,7 @@ model_selected <- function(model_list, response) {
   pl <- ggplot(pacf_bic, aes(x = lag, y = pacf)) +
     geom_segment(aes(x = lag, xend = lag, y = 0, yend = pacf)) +
     geom_point() +
-    geom_vline(xintercept = 24*7*(1:4), linetype = "dashed", color = "blue")+
+    geom_vline(xintercept = 24*(1:5), linetype = "dashed", color = "blue")+
     geom_hline(yintercept = 0, linetype = "dashed") +
     geom_hline(yintercept = ci_bic, linetype = "dashed") +
     geom_hline(yintercept = -ci_bic, linetype = "dashed") +

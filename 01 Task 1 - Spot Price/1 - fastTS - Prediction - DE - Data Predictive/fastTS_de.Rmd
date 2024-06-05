@@ -2,12 +2,15 @@
 title: "fastTS_de"
 author: "Federico Deotto"
 date: "2024-05-15"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE,warning = FALSE, message = FALSE)
+Sys.setlocale("LC_TIME", "en_US.UTF-8")
 
 library(ggplot2)
 library(lubridate)
@@ -45,10 +48,8 @@ theme_set(
 # Swiss Price
 ```{r}
 time_cut <- as.POSIXct("2023-01-01 00:00:00", tz = "UTC")
-df <- read_csv("../00 Data Retrieval and Cleaning/0_df_predictive_de_spot_price.csv") %>% 
+df <- read_csv("../../00 Data Retrieval and Cleaning/0_df_predictive_de_spot_price.csv") %>% 
   filter(date >= time_cut)
-df %>% dim()
-
 dummies_columns <- df %>%
   select(contains(c("_dummy", "cal_"))) %>% 
   colnames()
@@ -61,8 +62,7 @@ df <- df %>%                              #needed for recovering interaction eas
 x <- df %>%
   select(contains(c('cal_', 'dst')))
 
-formula_str <- paste("~ dst +",
-                     paste(names(x)[-which(names(x) == "dst")], " * dst", sep = "", collapse = " + "), sep = "")
+formula_str <- "~  .^2"                 #all possible intereactions
 formula_str <- formula(formula_str)
 
 x <- model.matrix(formula_str, data = x) %>%
@@ -70,35 +70,30 @@ x <- model.matrix(formula_str, data = x) %>%
   select(-contains("Intercept")) %>% 
   mutate_all(., as.factor)
 
-cond <- x %>%
-  mutate_all(as.numeric) %>% 
-  apply(., 2, function(x) all(x == 1))
-
-omit_names <- colnames(x)[cond]
-
-x <- x %>% 
-  select(-omit_names)
 
 df <- df %>% 
   select(-contains(c('cal_', 'dst'))) %>% 
   bind_cols(., x)
 
-
 df %>% dim()
 rm(x)
 
+
 discontinue_variables <- df %>% 
   select(where(is.numeric)) %>% 
-  slice(1700:1900) %>%     #easy for compuattion to subset
-  detect_columns_with_consecutive(n_consecutive = 13) %>%
+  select(-contains(c('cal_', 'dst'))) %>% 
+  slice(1700:1900) %>%
   select(-c(allocated_capacity_ch_de, allocated_capacity_de_ch)) %>% 
-  select(-contains('forecast')) %>% 
+  select(-contains('forecast')) %>% #easy for computation to subset
+  detect_columns_with_consecutive(n_consecutive = 13) %>%
   names()
 
+discontinue_variables
 
 df <- df %>%
-  mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.))) #they will be the same for all type and price
+  mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.))) #they will be the same for 
 
+#Remove zero variance
 df <- df %>%  
   mutate(across(-date, as.numeric))
 
@@ -110,14 +105,8 @@ null_variance_cols <- names(variances[variances == 0])
 df <- df %>% 
   select(-all_of(null_variance_cols))
 
-redundant_columns <- lm(day_ahead_price_de ~ ., data = df) %>%  
-  broom::tidy() |> 
-  filter(is.na(estimate)) %>% 
-  pull(term) %>%
-  str_remove_all('`')
 
-df <- df %>% 
-  select(-all_of(redundant_columns))
+df %>% dim()
 
 n <- df  %>% 
   nrow()
@@ -150,7 +139,7 @@ df <- df %>%
   select(c(day_ahead_price_de, date)) %>% 
   bind_cols(., X1) %>% 
   bind_cols(., X2)
-
+df %>% dim()
 
 rm(X1, X2)
 ```
@@ -204,5 +193,127 @@ results$result %>%
   mutate(.pred = fc_srb) %>% 
   mutate(actual = price) %>% 
   select(c(date, .pred, actual)) %>% 
-  write.csv(file = 'holdout_predictions.csv')
+  write.csv(file = 'holdout_predictions1.csv')
+```
+
+# Swiss Price
+```{r}
+time_cut <- as.POSIXct("2023-01-01 00:00:00", tz = "UTC")
+
+df <- read_csv("../../00 Data Retrieval and Cleaning/0_df_theoretical_de_spot_price.csv") %>% 
+  filter(date >= time_cut)
+dummies_columns <- df %>%
+  select(contains(c("_dummy", "cal_"))) %>% 
+  colnames()
+
+factor_colums <- c('dst', dummies_columns)
+
+df <- df %>%                              #needed for recovering interaction easily
+  mutate_at(vars(factor_colums), factor)
+
+x <- df %>%
+  select(contains(c('cal_', 'dst')))
+
+formula_str <- "~  .^2"                 #all possible intereactions
+formula_str <- formula(formula_str)
+
+x <- model.matrix(formula_str, data = x) %>%
+  as_tibble() %>%
+  select(-contains("Intercept")) %>% 
+  mutate_all(., as.factor)
+
+
+df <- df %>% 
+  select(-contains(c('cal_', 'dst'))) %>% 
+  bind_cols(., x)
+
+df %>% dim()
+rm(x)
+
+
+discontinue_variables <- df %>% 
+  select(where(is.numeric)) %>% 
+  select(-contains(c('cal_', 'dst'))) %>% 
+  slice(1700:1900) %>%
+  select(-c(allocated_capacity_ch_de, allocated_capacity_de_ch)) %>% 
+  select(-contains('forecast')) %>% #easy for computation to subset
+  detect_columns_with_consecutive(n_consecutive = 13) %>%
+  names()
+
+discontinue_variables
+
+df <- df %>%
+  mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.))) #they will be the same for 
+
+#Remove zero variance
+df <- df %>%  
+  mutate(across(-date, as.numeric))
+
+variances = df %>%  
+  select(-c(date)) %>%  
+  apply(2, var)
+
+null_variance_cols <- names(variances[variances == 0])
+df <- df %>% 
+  select(-all_of(null_variance_cols))
+
+
+df %>% dim()
+
+n <- df  %>% 
+  nrow()
+
+x <- df  %>% 
+  filter(date >= as.POSIXct("2024-01-01 00:00:00", tz = "UTC")) %>% 
+  nrow()
+
+p.train <- 1-(x/n)
+max_lag =24*5   # 1 month - this is the amount of data that we will lose by shifting
+
+
+rm(x, n)
+
+dummies_columns <- c( 'dst', 'cal', 'dummy', 'date')
+
+ff <- formula(day_ahead_price_de ~ -1 + .^2) #only numeric
+X1 <- df %>% 
+  select(-contains(dummies_columns)) %>% 
+  model.matrix(ff, data = .)
+
+
+X2 <- df %>%
+  select(-c(day_ahead_price_de, date)) %>% 
+  select(-contains(dummies_columns)) %>% 
+  mutate(across(everything(), ~ .^2, .names = "{.col}_squared")) %>% 
+  select(contains('_squared'))
+
+df <- df %>% 
+  select(c(day_ahead_price_de, date)) %>% 
+  bind_cols(., X1) %>% 
+  bind_cols(., X2)
+df %>% dim()
+
+rm(X1, X2)
+```
+
+```{r}
+models <- df %>% 
+  mutate(day_ahead_price_de = ihs10(day_ahead_price_de)) %>% 
+  model_list(p.train = p.train, n_lags_max = max_lag, response = 'day_ahead_price_de')
+```
+
+```{r}
+best_models <- model_selected(models, response = 'German price')
+```
+
+```{r}
+results <- prediction_step(models, auction = F, inverse_transformation = inverse_ihs10, response = 'German price')
+```
+
+```{r}
+results$result %>% 
+  mutate(.pred = fc_srb) %>% 
+  mutate(actual = price) %>% 
+  select(c(date, .pred, actual)) %>% 
+  write.csv(file = 'holdout_predictions2.csv')
 ```
