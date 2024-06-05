@@ -2,12 +2,15 @@
 title: "fastTS_de_ch"
 author: "Federico Deotto"
 date: "2024-05-15"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE,warning = FALSE, message = FALSE)
+Sys.setlocale("LC_TIME", "en_US.UTF-8")
 
 library(ggplot2)
 library(lubridate)
@@ -35,7 +38,7 @@ theme_set(
     theme(  
       plot.title = element_text(face = "bold", size = 14),
       plot.subtitle = element_text(
-        face = "italic", size = 10, colour = "green50"
+        face = "italic", size = 10, colour = 'grey50'
       )
     )
 )
@@ -45,10 +48,8 @@ theme_set(
 # Swiss Price
 ```{r}
 time_cut <- as.POSIXct("2023-01-01 00:00:00", tz = "UTC")
-df <- read_csv("../00 Data Retrieval and Cleaning/0_df_predictive_dech_auction_price.csv") %>% 
+df <- read_csv("../../00 Data Retrieval and Cleaning/0_df_predictive_dech_auction_price.csv") %>% 
   filter(date >= time_cut)
-
-
 dummies_columns <- df %>%
   select(contains(c("_dummy", "cal_"))) %>% 
   colnames()
@@ -61,8 +62,7 @@ df <- df %>%                              #needed for recovering interaction eas
 x <- df %>%
   select(contains(c('cal_', 'dst')))
 
-formula_str <- paste("~ dst +",
-                     paste(names(x)[-which(names(x) == "dst")], " * dst", sep = "", collapse = " + "), sep = "")
+formula_str <- "~  .^2"                 #all possible intereactions
 formula_str <- formula(formula_str)
 
 x <- model.matrix(formula_str, data = x) %>%
@@ -70,33 +70,30 @@ x <- model.matrix(formula_str, data = x) %>%
   select(-contains("Intercept")) %>% 
   mutate_all(., as.factor)
 
-cond <- x %>%
-  mutate_all(as.numeric) %>% 
-  apply(., 2, function(x) all(x == 1))
-
-omit_names <- colnames(x)[cond]
-
-x <- x %>% 
-  select(-omit_names)
 
 df <- df %>% 
   select(-contains(c('cal_', 'dst'))) %>% 
   bind_cols(., x)
 
+df %>% dim()
 rm(x)
+
 
 discontinue_variables <- df %>% 
   select(where(is.numeric)) %>% 
-  slice(1700:1900) %>%     #easy for compuattion to subset
-  detect_columns_with_consecutive(n_consecutive = 13) %>%
+  select(-contains(c('cal_', 'dst'))) %>% 
+  slice(1700:1900) %>%
   select(-c(allocated_capacity_ch_de, allocated_capacity_de_ch)) %>% 
-  select(-contains('forecast')) %>% 
+  select(-contains('forecast')) %>% #easy for computation to subset
+  detect_columns_with_consecutive(n_consecutive = 13) %>%
   names()
 
+discontinue_variables
 
 df <- df %>%
-  mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.))) #they will be the same for all type and price
+  mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.))) #they will be the same for 
 
+#Remove zero variance
 df <- df %>%  
   mutate(across(-date, as.numeric))
 
@@ -108,14 +105,8 @@ null_variance_cols <- names(variances[variances == 0])
 df <- df %>% 
   select(-all_of(null_variance_cols))
 
-redundant_columns <- lm(auction_price_de_ch ~ ., data = df) %>%  
-  broom::tidy() |> 
-  filter(is.na(estimate)) %>% 
-  pull(term) %>%
-  str_remove_all('`')
 
-df <- df %>% 
-  select(-all_of(redundant_columns))
+df %>% dim()
 
 n <- df  %>% 
   nrow()
@@ -148,7 +139,7 @@ df <- df %>%
   select(c(auction_price_de_ch, date)) %>% 
   bind_cols(., X1) %>% 
   bind_cols(., X2)
-
+df %>% dim()
 
 rm(X1, X2)
 ```
@@ -191,21 +182,27 @@ models <- df %>%
 ```
 
 ```{r}
-best_models <- model_selected(models)
+best_models <- model_selected(models, response = 'Transmission price DE-CH')
 ```
 
 ```{r}
-results <- prediction_step(models, auction = T, inverse_transformation = inverse_ihs10)
+results <- prediction_step(models, auction = T, inverse_transformation = inverse_ihs10, response = 'Transmission price DE-CH')
+```
+
+```{r}
+results$result %>% 
+  mutate(.pred = fc_sra) %>% 
+  mutate(actual = price) %>% 
+  select(c(date, .pred, actual)) %>% 
+  write.csv(file = 'holdout_predictions1.csv')
 ```
 
 # Swiss Price
 ```{r}
 time_cut <- as.POSIXct("2023-01-01 00:00:00", tz = "UTC")
 
-df <- read_csv("../00 Data Retrieval and Cleaning/0_df_theoretical_dech_auction_price.csv") %>% 
+df <- read_csv("../../00 Data Retrieval and Cleaning/0_df_theoretical_dech_auction_price.csv") %>% 
   filter(date >= time_cut)
-
-
 dummies_columns <- df %>%
   select(contains(c("_dummy", "cal_"))) %>% 
   colnames()
@@ -218,8 +215,7 @@ df <- df %>%                              #needed for recovering interaction eas
 x <- df %>%
   select(contains(c('cal_', 'dst')))
 
-formula_str <- paste("~ dst +",
-                     paste(names(x)[-which(names(x) == "dst")], " * dst", sep = "", collapse = " + "), sep = "")
+formula_str <- "~  .^2"                 #all possible intereactions
 formula_str <- formula(formula_str)
 
 x <- model.matrix(formula_str, data = x) %>%
@@ -227,33 +223,30 @@ x <- model.matrix(formula_str, data = x) %>%
   select(-contains("Intercept")) %>% 
   mutate_all(., as.factor)
 
-cond <- x %>%
-  mutate_all(as.numeric) %>% 
-  apply(., 2, function(x) all(x == 1))
-
-omit_names <- colnames(x)[cond]
-
-x <- x %>% 
-  select(-omit_names)
 
 df <- df %>% 
   select(-contains(c('cal_', 'dst'))) %>% 
   bind_cols(., x)
 
+df %>% dim()
 rm(x)
+
 
 discontinue_variables <- df %>% 
   select(where(is.numeric)) %>% 
-  slice(1700:1900) %>%     #easy for compuattion to subset
-  detect_columns_with_consecutive(n_consecutive = 13) %>%
+  select(-contains(c('cal_', 'dst'))) %>% 
+  slice(1700:1900) %>%
   select(-c(allocated_capacity_ch_de, allocated_capacity_de_ch)) %>% 
-  select(-contains('forecast')) %>% 
+  select(-contains('forecast')) %>% #easy for computation to subset
+  detect_columns_with_consecutive(n_consecutive = 13) %>%
   names()
 
+discontinue_variables
 
 df <- df %>%
-  mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.))) #they will be the same for all type and price
+  mutate(across(all_of(discontinue_variables), ~ interpolation_vector(.))) #they will be the same for 
 
+#Remove zero variance
 df <- df %>%  
   mutate(across(-date, as.numeric))
 
@@ -265,14 +258,8 @@ null_variance_cols <- names(variances[variances == 0])
 df <- df %>% 
   select(-all_of(null_variance_cols))
 
-redundant_columns <- lm(auction_price_de_ch ~ ., data = df) %>%  
-  broom::tidy() |> 
-  filter(is.na(estimate)) %>% 
-  pull(term) %>%
-  str_remove_all('`')
 
-df <- df %>% 
-  select(-all_of(redundant_columns))
+df %>% dim()
 
 n <- df  %>% 
   nrow()
@@ -305,7 +292,7 @@ df <- df %>%
   select(c(auction_price_de_ch, date)) %>% 
   bind_cols(., X1) %>% 
   bind_cols(., X2)
-
+df %>% dim()
 
 rm(X1, X2)
 ```
@@ -317,9 +304,17 @@ models <- df %>%
 ```
 
 ```{r}
-best_models <- model_selected(models)
+best_models <- model_selected(models, response = 'Transmission price DE-CH')
 ```
 
 ```{r}
-results <- prediction_step(models, auction = T, inverse_transformation = inverse_ihs10)
+results <- prediction_step(models, auction = T, inverse_transformation = inverse_ihs10, response = 'Transmission price DE-CH')
+```
+
+```{r}
+results$result %>% 
+  mutate(.pred = fc_sra) %>% 
+  mutate(actual = price) %>% 
+  select(c(date, .pred, actual)) %>% 
+  write.csv(file = 'holdout_predictions2.csv')
 ```
