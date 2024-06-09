@@ -1,0 +1,428 @@
+---
+title: "Theorerical models correct
+"
+author: "Olivier Zehnder"
+date: "2024-05-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+### Modelling of Swiss Day ahead prices
+
+# Load necessary libraries
+
+library(rugarch)
+library(forecast)
+library(dplyr)
+
+#Functions
+# Define a function to calculate R-squared
+calculate_r_squared <- function(true_values, fitted_values) {
+  # Calculate the mean of true values
+  true_mean <- mean(true_values)
+  
+  # Calculate total sum of squares (TSS)
+  TSS <- sum((true_values - true_mean)^2)
+  
+  # Calculate residual sum of squares (RSS)
+  RSS <- sum((true_values - fitted_values)^2)
+  
+  # Calculate R-squared
+  R_squared <- 1 - (RSS / TSS)
+  
+  return(R_squared)
+}
+# Load your dataset
+
+```
+
+Loading data:
+```{r}
+df_CH_DA <- read.csv("~/Downloads/0_df_theoretical_ch_spot_price.csv", header=TRUE)
+df_CH_DA$date <- as.Date(df_CH_DA$date)
+df_CH_DA$cal_day_in_month = as.factor(df_CH_DA$cal_day_in_month)
+df_CH_DA$cal_day_in_week = as.factor(df_CH_DA$cal_day_in_week)
+df_CH_DA$cal_hour_in_day= as.factor(df_CH_DA$cal_hour_in_day)
+df_CH_DA$cal_month = as.factor(df_CH_DA$cal_month)
+df_CH_DA$cal_quarter = as.factor(df_CH_DA$cal_quarter)
+
+
+df_DE_DA <- read.csv("~/Downloads/0_df_theoretical_chde_auction_price.csv", header=TRUE)
+df_DE_DA$date <- as.Date(df_DE_DA$date)
+df_DE_DA$cal_day_in_month = as.factor(df_DE_DA$cal_day_in_month)
+df_DE_DA$cal_day_in_week = as.factor(df_DE_DA$cal_day_in_week)
+df_DE_DA$cal_hour_in_day= as.factor(df_DE_DA$cal_hour_in_day)
+df_DE_DA$cal_month = as.factor(df_DE_DA$cal_month)
+df_DE_DA$cal_quarter = as.factor(df_DE_DA$cal_quarter)
+
+df_DE_CH_AUCT <-read.csv("~/Downloads/0_df_theoretical_dech_auction_price.csv", header=TRUE)
+df_DE_CH_AUCT$date <- as.Date(df_DE_CH_AUCT$date)
+df_DE_CH_AUCT$cal_day_in_month = as.factor(df_DE_CH_AUCT$cal_day_in_month)
+df_DE_CH_AUCT$cal_day_in_week = as.factor(df_DE_CH_AUCT$cal_day_in_week)
+df_DE_CH_AUCT$cal_hour_in_day= as.factor(df_DE_CH_AUCT$cal_hour_in_day)
+df_DE_CH_AUCT$cal_month = as.factor(df_DE_CH_AUCT$cal_month)
+df_DE_CH_AUCT$cal_quarter = as.factor(df_DE_CH_AUCT$cal_quarter)
+
+df_CH_DE_AUCT <- read.csv("~/Downloads/0_df_theoretical_chde_auction_price.csv", header=TRUE)
+df_CH_DE_AUCT$date <- as.Date(df_CH_DE_AUCT$date)
+df_CH_DE_AUCT$cal_day_in_month = as.factor(df_CH_DE_AUCT$cal_day_in_month)
+df_CH_DE_AUCT$cal_day_in_week = as.factor(df_CH_DE_AUCT$cal_day_in_week)
+df_CH_DE_AUCT$cal_hour_in_day= as.factor(df_CH_DE_AUCT$cal_hour_in_day)
+df_CH_DE_AUCT$cal_month = as.factor(df_CH_DE_AUCT$cal_month)
+df_CH_DE_AUCT$cal_quarter = as.factor(df_CH_DE_AUCT$cal_quarter)
+
+```
+
+Getting rid of linear dependent cols:
+```{r}
+df_CH_DA_train= arrange(df_CH_DA, date)[1:8734,]
+fit_cleaning= lm(day_ahead_price_ch~., data=df_CH_DA_train)
+
+# Identify predictors with NA coefficients (indicating rank deficiency)
+na_predictors <- names(fit_cleaning$coefficients)[is.na(fit_cleaning$coefficients)]
+
+df_CH_DA <- df_CH_DA %>%
+  select(-any_of(na_predictors))
+
+df_DE_DA <- df_DE_DA %>%
+  select(-any_of(na_predictors))
+
+df_DE_CH_AUCT <- df_DE_CH_AUCT %>%
+  select(-any_of(na_predictors))
+
+df_CH_DE_AUCT <- df_CH_DE_AUCT %>%
+  select(-any_of(na_predictors))
+```
+
+
+
+Split the data into training and testing data. Training data is data from the year 2023, testing data from the year 2024
+```{r}
+
+
+df_CH_DA_train= arrange(df_CH_DA, date)[1:8734,] #Split data at end of 2023 / Beginning of 2024  into train and test
+df_CH_DA_test= arrange(df_CH_DA, date)[8735:9477,]
+
+df_DE_DA_train= arrange(df_DE_DA, date)[1:8734,]
+df_DE_DA_test= arrange(df_DE_DA, date)[8735:9477,]
+
+df_DE_CH_AUCT_train= arrange(df_DE_CH_AUCT, date)[1:8734,]
+df_DE_CH_AUCT_test= arrange(df_DE_CH_AUCT, date)[8735:9477,]
+
+df_CH_DE_AUCT_train= arrange(df_CH_DE_AUCT, date)[1:8734,]
+df_CH_DE_AUCT_test= arrange(df_CH_DE_AUCT, date)[8735:9477,]
+
+rm(df_CH_DA)
+rm(df_DE_DA)
+rm(df_DE_CH_AUCT)
+rm(df_CH_DE_AUCT)
+```
+
+
+```{r}
+df_CH_DA_train_numeric <- as.data.frame(lapply(df_CH_DA_train, function(x) as.numeric(as.character(x))))
+df_DE_DA_train_numeric <- as.data.frame(lapply(df_DE_DA_train, function(x) as.numeric(as.character(x))))
+df_DE_CH_AUCT_train_numeric <- as.data.frame(lapply(df_DE_CH_AUCT_train, function(x) as.numeric(as.character(x))))
+df_CH_DE_AUCT_train_numeric <- as.data.frame(lapply(df_CH_DE_AUCT_train, function(x) as.numeric(as.character(x))))
+
+
+df_CH_DA_test_numeric <- as.data.frame(lapply(df_CH_DA_test, function(x) as.numeric(as.character(x))))
+df_DE_DA_test_numeric <- as.data.frame(lapply(df_DE_DA_test, function(x) as.numeric(as.character(x))))
+df_DE_CH_AUCT_test_numeric <- as.data.frame(lapply(df_DE_CH_AUCT_test, function(x) as.numeric(as.character(x))))
+df_CH_DE_AUCT_test_numeric <- as.data.frame(lapply(df_CH_DE_AUCT_test, function(x) as.numeric(as.character(x))))
+
+xreg_train_CH_DA <- select(df_CH_DA_train_numeric, -c("day_ahead_price_ch", "date")) %>%
+  as.matrix()
+xreg_train_DE_DA <- select(df_DE_DA_train_numeric, -c("day_ahead_price_de", "date"))%>%
+  as.matrix()
+xreg_train_DE_CH_AUCT <- select(df_DE_CH_AUCT_train_numeric, -c("auction_price_de_ch", "date")) %>%
+  as.matrix()
+xreg_train_CH_DE_AUCT <- select(df_CH_DE_AUCT_train_numeric, -c("auction_price_ch_de", "date")) %>%
+  as.matrix()
+
+# rank of the matrix to invert in ARIMA:
+
+pivotal_columns <- function(X){
+  rank<- qr(t(X) %*% X)$rank
+  n <- ncol(X)
+  pivotal_columns <- numeric(0)
+  
+  for (i in 1:n) {
+    # Include the current column in the test matrix
+    test_matrix <- X[,-i]
+    
+    # Check if the rank remains 173
+    if (qr(t(test_matrix)%*%test_matrix)$rank != rank) {
+      pivotal_columns <- c(pivotal_columns, i)
+    }
+  }
+  return(pivotal_columns)
+}
+
+pivot_col_CH_DA <- pivotal_columns(xreg_train_CH_DA)
+pivot_col_DE_DA <- pivotal_columns(xreg_train_DE_DA)
+pivot_col_DE_CH_AUCT <- pivotal_columns(xreg_train_DE_CH_AUCT)
+pivot_col_CH_DE_AUCT <- pivotal_columns(xreg_train_CH_DE_AUCT)
+```
+
+```{r}
+xreg_train_CH_DA<- select(df_CH_DA_train_numeric, -c("day_ahead_price_ch", "date"))[, pivot_col_CH_DA]
+xreg_train_DE_DA<- select(df_DE_DA_train_numeric, -c("day_ahead_price_de", "date"))[, pivot_col_DE_DA]
+xreg_train_DE_CH_AUCT<- select(df_DE_CH_AUCT_train_numeric, -c("auction_price_de_ch", "date"))[, pivot_col_DE_CH_AUCT]
+xreg_train_CH_DE_AUCT<- select(df_CH_DE_AUCT_train_numeric, -c("auction_price_ch_de", "date"))[, pivot_col_CH_DE_AUCT]
+
+xreg_test_CH_DA<- select(df_CH_DA_test_numeric, -c("day_ahead_price_ch", "date"))[, pivot_col_CH_DA]
+xreg_test_DE_DA<- select(df_DE_DA_test_numeric, -c("day_ahead_price_de", "date"))[, pivot_col_DE_DA]
+xreg_test_DE_CH_AUCT<- select(df_DE_CH_AUCT_test_numeric, -c("auction_price_de_ch", "date"))[, pivot_col_DE_CH_AUCT]
+xreg_test_CH_DE_AUCT<- select(df_CH_DE_AUCT_test_numeric, -c("auction_price_ch_de", "date"))[, pivot_col_CH_DE_AUCT]
+
+CH_DA_price= df_CH_DA_train$day_ahead_price_ch
+DE_DA_price= df_DE_DA_train$day_ahead_price_de
+AUCT_CH_DE_price= df_CH_DE_AUCT_train$auction_price_ch_de
+AUCT_DE_CH_price= df_DE_CH_AUCT_train$auction_price_de_ch
+
+```
+
+#retraining
+```{r}
+# Required Libraries
+library(rugarch)
+
+# Function to calculate R-squared
+calculate_r_squared <- function(actual, predicted) {
+  ss_res <- sum((actual - predicted) ^ 2)
+  ss_tot <- sum((actual - mean(actual)) ^ 2)
+  r2 <- 1 - (ss_res / ss_tot)
+  return(r2)
+}
+
+# Initialize variables
+predictions_DA_CH <- numeric()
+predictions_DA_DE <- numeric()
+predictions_AUCT_CH_DE <- numeric()
+predictions_AUCT_DE_CH <- numeric()
+
+# Chunk size for predictions
+chunk_size <- 24
+
+# Ensure the initial training data is in the correct format
+train_data_CH_DA <- cbind(asinh(df_CH_DA_train$day_ahead_price_ch), xreg_train_CH_DA[, c(1:11, 16:20)])
+colnames(train_data_CH_DA)[1] <- "asinh_price_ch"
+train_data_DE_DA <- cbind(asinh(df_DE_DA_train$day_ahead_price_de), xreg_train_DE_DA[, c(1:11, 16:20)])
+colnames(train_data_DE_DA)[1] <- "asinh_price_de"
+train_data_CH_DE_AUCT <- cbind(asinh(df_CH_DE_AUCT_train$auction_price_ch_de), xreg_train_CH_DE_AUCT[, c(1:11, 16:20)])
+colnames(train_data_CH_DE_AUCT)[1] <- "asinh_price_ch_de"
+train_data_DE_CH_AUCT <- cbind(asinh(df_DE_CH_AUCT_train$auction_price_de_ch), xreg_train_DE_CH_AUCT[, c(1:11, 16:20)])
+colnames(train_data_DE_CH_AUCT)[1] <- "asinh_price_de_ch"
+
+  
+  garch_model_DA_CH <- ugarchspec(mean.model = list(armaOrder = c(2,2), include.mean = TRUE, external.regressors = as.matrix(select(train_data_CH_DA,-"asinh_price_ch"))), variance.model = list(model = "sGARCH",garchOrder = c(1, 1), external.regressors = as.matrix(select(train_data_CH_DA,-"asinh_price_ch"))), distribution.model = "std")
+  
+  garch_model_DA_DE <- ugarchspec(mean.model = list(armaOrder = c(2,2), include.mean = TRUE,external.regressors = as.matrix(select(train_data_DE_DA, -"asinh_price_de"))), variance.model = list(model = "sGARCH", garchOrder = c(1, 1),  external.regressors = as.matrix(select(train_data_DE_DA, -"asinh_price_de"))), distribution.model = "std")
+
+garch_model_CH_DE_AUCT <- ugarchspec(mean.model = list(armaOrder = c(2,2), include.mean = TRUE, external.regressors = as.matrix(select(train_data_CH_DE_AUCT, -"asinh_price_ch_de"))), variance.model = list(model = "sGARCH",garchOrder = c(1, 1), external.regressors = as.matrix(select(train_data_CH_DE_AUCT, -"asinh_price_ch_de"))), distribution.model = "std")
+
+garch_model_DE_CH_AUCT <- ugarchspec(mean.model = list(armaOrder = c(2,2), include.mean = TRUE, external.regressors = as.matrix(select(train_data_DE_CH_AUCT, -"asinh_price_de_ch"))), variance.model = list(model = "sGARCH", garchOrder = c(1, 1), external.regressors = as.matrix(select(train_data_DE_CH_AUCT, -"asinh_price_de_ch"))), distribution.model = "std")
+
+  
+#fit_DA_CH_ARMA_GARCH <- ugarchfit(spec = garch_model_DA_CH, data = train_data_CH_DA, solver="hybrid")
+#fit_DA_DE_ARMA_GARCH <- ugarchfit(spec = garch_model_DA_DE,data =  train_data_DE_DA, solver="hybrid")
+#fit_AUCT_CH_DE_ARMA_GARCH <- ugarchfit(spec = garch_model_CH_DE_AUCT, data =  train_data_CH_DE_AUCT, solver="hybrid")
+#fit_AUCT_DE_CH_ARMA_GARCH <- ugarchfit(spec = garch_model_DE_CH_AUCT, data = train_data_DE_CH_AUCT, solver="hybrid")
+
+start_pars_DA_CH <- coef(fit_DA_CH_ARMA_GARCH)
+start_pars_DA_DE <- coef(fit_DA_DE_ARMA_GARCH)
+start_pars_AUCT_CH_DE<- coef(fit_AUCT_CH_DE_ARMA_GARCH)
+start_pars_AUCT_DE_CH <- coef(fit_AUCT_DE_CH_ARMA_GARCH)
+
+
+
+# Rolling Forecast with Retraining
+for (i in seq(1, nrow(df_CH_DA_test), by = chunk_size)) {
+  end <- min(chunk_size, nrow(df_CH_DA_test)-i+1)
+  print(paste("Processing chunk:", i, "to", end))
+  
+  garch_model_DA_CH <- ugarchspec(mean.model = list(armaOrder = c(2,2), include.mean = TRUE, external.regressors = as.matrix(select(train_data_CH_DA,-c("asinh_price_ch")))), variance.model = list(model = "sGARCH",garchOrder = c(1, 1), external.regressors = as.matrix(select(train_data_CH_DA,-c("asinh_price_ch")))), distribution.model = "std")
+  
+  garch_model_DA_DE <- ugarchspec(mean.model = list(armaOrder = c(2,2), include.mean = TRUE,external.regressors = as.matrix(select(train_data_DE_DA, -c("asinh_price_de")))), variance.model = list(model = "sGARCH", garchOrder = c(1, 1),  external.regressors = as.matrix(select(train_data_DE_DA, -c("asinh_price_de")))), distribution.model = "std")
+
+garch_model_CH_DE_AUCT <- ugarchspec(mean.model = list(armaOrder = c(2,2), include.mean = TRUE, external.regressors = as.matrix(select(train_data_CH_DE_AUCT, -c("asinh_price_ch_de")))), variance.model = list(model = "sGARCH",garchOrder = c(1, 1),external.regressors = as.matrix(select(train_data_CH_DE_AUCT, -c("asinh_price_ch_de")))), distribution.model = "sstd")
+
+garch_model_DE_CH_AUCT <- ugarchspec(mean.model = list(armaOrder = c(2,2), include.mean = TRUE, external.regressors = as.matrix(select(train_data_DE_CH_AUCT, -c("asinh_price_de_ch")))), variance.model = list(model = "sGARCH", garchOrder = c(1, 1), external.regressors = as.matrix(select(train_data_DE_CH_AUCT, -c("asinh_price_de_ch")))), distribution.model = "sstd")
+
+  
+fit_DA_CH_ARMA_GARCH <- ugarchfit(spec = garch_model_DA_CH, data = train_data_CH_DA, solver="hybrid", start.pars = start_pars_DA_CH)
+
+fit_DA_DE_ARMA_GARCH <- ugarchfit(spec = garch_model_DA_DE,data =  train_data_DE_DA, solver="hybrid",  start.pars =start_pars_DA_DE)
+
+fit_AUCT_CH_DE_ARMA_GARCH <- ugarchfit(spec = garch_model_CH_DE_AUCT, data =  train_data_CH_DE_AUCT, solver="hybrid", start.pars =start_pars_AUCT_CH_DE)
+
+fit_AUCT_DE_CH_ARMA_GARCH <- ugarchfit(spec = garch_model_DE_CH_AUCT, data = train_data_DE_CH_AUCT, solver="hybrid", start.pars =start_pars_AUCT_DE_CH)
+ print("check 1: " )
+
+  
+    predicted_values_DA_CH <- sinh(fitted(ugarchforecast(fit_DA_CH_ARMA_GARCH, n.ahead = end, external.forecasts = list(mregfor = as.matrix(xreg_test_CH_DA[i:(i+end-1),c(1:11,16:20)])))))
+    
+    predicted_values_DA_DE <-  sinh(fitted(ugarchforecast(fit_DA_DE_ARMA_GARCH, n.ahead = end, external.forecasts = list(mregfor = as.matrix(xreg_test_DE_DA[i:(i+end-1),c(1:11,16:20)])))))
+
+predicted_values_AUCT_DE_CH <-  sinh(fitted(ugarchforecast(fit_AUCT_DE_CH_ARMA_GARCH, n.ahead = end, external.forecasts = list(mregfor = as.matrix(xreg_test_DE_CH_AUCT[i:(i+end-1),c(1:11,16:20)])))))
+
+predicted_values_AUCT_CH_DE <-  sinh(fitted(ugarchforecast(fit_AUCT_CH_DE_ARMA_GARCH, n.ahead = end, external.forecasts = list(mregfor = as.matrix(xreg_test_CH_DE_AUCT[i:(i+end-1),c(1:11,16:20)])))))
+  
+
+  print("check 2: " )  
+  # Store predictions
+ predictions_DA_CH <- c(predictions_DA_CH, predicted_values_DA_CH)
+ predictions_DA_DE <- c(predictions_DA_DE, predicted_values_DA_DE)
+ predictions_AUCT_CH_DE <- c(predictions_AUCT_CH_DE, predicted_values_AUCT_CH_DE)
+ predictions_AUCT_DE_CH <- c(predictions_AUCT_DE_CH, predicted_values_AUCT_DE_CH)
+ 
+    print("check 3: " )
+  # Update the training data with the new observations
+  new_data_CH_DA <- cbind(asinh(df_CH_DA_test$day_ahead_price_ch[i:(end+i-1)]), xreg_test_CH_DA[i:(end+i-1),c(1:11,16:20)])
+  colnames(new_data_CH_DA)[1] <- "asinh_price_ch"
+  
+  new_data_DE_DA <- cbind(asinh(df_DE_DA_test$day_ahead_price_de[i:(end+i-1)]), xreg_test_DE_DA[i:(end+i-1),c(1:11,16:20)])
+  colnames(new_data_DE_DA)[1] <- "asinh_price_de"
+  new_data_CH_DE_AUCT <- cbind(asinh(df_CH_DE_AUCT_test$auction_price_ch_de[i:(end+i-1)]), xreg_test_CH_DE_AUCT[i:(end+i-1),c(1:11,16:20)])
+  colnames(new_data_CH_DE_AUCT)[1] <- "asinh_price_ch_de"
+  new_data_DE_CH_AUCT <- cbind(asinh(df_DE_CH_AUCT_test$auction_price_de_ch[i:(end+i-1)]), xreg_test_DE_CH_AUCT[i:(end+i-1),c(1:11,16:20)] )
+  colnames(new_data_DE_CH_AUCT)[1] <- "asinh_price_de_ch"
+
+  
+  
+    print("check 4: " )
+  train_data_CH_DA <- rbind(train_data_CH_DA, new_data_CH_DA)
+  train_data_DE_DA <- rbind(train_data_DE_DA, new_data_DE_DA)
+  train_data_CH_DE_AUCT <- rbind(train_data_CH_DE_AUCT, new_data_CH_DE_AUCT)
+  train_data_DE_CH_AUCT <- rbind(train_data_DE_CH_AUCT, new_data_DE_CH_AUCT)
+  
+start_pars_DA_CH <- coef(fit_DA_CH_ARMA_GARCH)
+start_pars_DA_DE <- coef(fit_DA_DE_ARMA_GARCH)
+start_pars_AUCT_CH_DE<- coef(fit_AUCT_CH_DE_ARMA_GARCH)
+start_pars_AUCT_DE_CH <- coef(fit_AUCT_DE_CH_ARMA_GARCH)
+}
+
+# Calculate R-squared and MSE for the entire test set
+R2_DA_CH <- calculate_r_squared(df_CH_DA_test$day_ahead_price_ch[1:length(predictions_DA_CH)], predictions_DA_CH)
+mse_DA_CH <- mean((df_CH_DA_test$day_ahead_price_ch[1:length(predictions_DA_CH)] - predictions_DA_CH)^2)
+
+R2_DA_DE <- calculate_r_squared(df_DE_DA_test$day_ahead_price_de[1:length(predictions_DA_DE)], predictions_DA_DE)
+mse_DA_DE <- mean((df_DE_DA_test$day_ahead_price_de[1:length(predictions_DA_DE)] - predictions_DA_DE)^2)
+
+R2_AUCT_CH_DE <- calculate_r_squared(df_CH_DE_AUCT_test$auction_price_ch_de[1:length(predictions_AUCT_CH_DE)], pmax(0, predictions_AUCT_CH_DE))
+mse_AUCT_CH_DE <- mean((df_CH_DE_AUCT_test$auction_price_ch_de[1:length(predictions_AUCT_CH_DE)] - pmax(0, predictions_AUCT_CH_DE))^2)
+
+R2_AUCT_DE_CH <- calculate_r_squared(df_DE_CH_AUCT_test$auction_price_de_ch[1:length(predictions_AUCT_DE_CH)], pmax(0, predictions_AUCT_DE_CH))
+mse_AUCT_DE_CH <- mean((df_DE_CH_AUCT_test$auction_price_de_ch[1:length(predictions_AUCT_DE_CH)] - pmax(0, predictions_AUCT_DE_CH))^2)
+
+# Create a dataframe for the results
+result_table <- data.frame(
+  rmse = c(mse_DA_CH, mse_DA_DE, mse_AUCT_CH_DE, mse_AUCT_DE_CH),
+  rsquared = c(R2_DA_CH, R2_DA_DE, R2_AUCT_CH_DE, R2_AUCT_DE_CH),
+  row.names = c("Swiss DA Prices", "German DA Prices", "Auction Price CH-DE", "Auction Price DE-CH")
+)
+
+# Print the result
+print(result_table)
+
+```
+
+Visualizion OOS fit
+```{r}
+#Visualization of out of sample fit:
+transparent_firebrick <- adjustcolor("firebrick", alpha.f = 0.8)
+plot(df_CH_DA_test$day_ahead_price_ch[0:743], type="l", main="Swiss Day Ahead Prices - Predictions",  xlab = " ", ylab = "Spot Price", xaxt = "n", ylim=c(0,180), lwd=1.5)
+lines(predictions_DA_CH, col=transparent_firebrick, lwd=1.5)
+axis(1, at = seq(1, 743, by = 100), labels = df_DE_DA_test$date[seq(1, 743, by = 100)], las = 2, cex.axis = 0.7)
+legend("topright", legend = c("True Prices", "Predictions: ARMA(2,2)-GARCH(1,1)"), col = c("black", transparent_firebrick), lwd = 2, cex=0.7)
+
+plot(df_DE_DA_test$day_ahead_price_de[0:743], type="l", main="German Day Ahead Prices - Predictions", ylim=c(-50,220), xlab = " ", ylab = "Price", xaxt = "n", , lwd=1.5,  xaxt = "n")
+lines(predictions_DA_DE, col=transparent_firebrick, lwd=1.5)
+axis(1, at = seq(1, 743, by = 100), labels = df_DE_DA_test$date[seq(1, 743, by = 100)], las = 2, cex.axis = 0.7)
+legend("topright", legend = c("True Prices", "Predictions: ARMA(2,2)-GARCH(1,1)"), col = c("black", transparent_firebrick), lwd = 2, cex=0.7)
+
+plot(df_DE_CH_AUCT_test$auction_price_de_ch[0:743], type="l", main="Auction Prices DE_CH - Predictions", xlab = " ", ylab = "Price", xaxt = "n", ylim= c(0,80))
+lines(pmax(0,predictions_AUCT_DE_CH), col=transparent_firebrick)
+axis(1, at = seq(1, 743, by = 360), labels = df_DE_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
+legend("topright", legend = c("True Prices", "Predictions: ARMA(2,2)-GARCH(1,1)"), col = c("black",transparent_firebrick), lwd = 2, cex=0.7)
+
+plot(df_CH_DE_AUCT_test$auction_price_ch_de[0:743], type="l", main="Auction Prices CH_DE - Predictions", xlab = " ", ylab = "Price", xaxt = "n", ylim= c(0,100))
+lines(pmax(0,predictions_AUCT_CH_DE), col=transparent_firebrick)
+axis(1, at = seq(1, 8734, by = 360), labels = df_DE_DA_train$date[seq(1, 8734, by = 360)], las = 2, cex.axis = 0.7)
+
+legend("topright", legend = c("True Prices", "Predictions: ARMA(2,2)-GARCH(1,1)"), col = c("black",transparent_firebrick), lwd = 2, cex=0.7)
+```
+
+```{r}
+save(predictions_AUCT_DE_CH, fit_AUCT_DE_CH_ARMA_GARCH, file = "THEORETICAL model + predictions Auction price DE_CH.RData") 
+```
+
+```{r}
+save(predictions_DA_CH, fit_DA_CH_ARMA_GARCH, file = "THEORETICAL model + predictions Swiss Day ahead price.RData") 
+```
+
+```{r}
+save(predictions_AUCT_CH_DE, fit_DA_DE_ARMA_GARCH, file = "THEORETICAL model + predictions German Day ahead price.RData") 
+```
+
+
+```{r}
+save(predictions_AUCT_DE_CH, fit_AUCT_CH_DE_ARMA_GARCH, file = "THEORETICAL model + predictions Auction price CH_DE.RData") 
+```
+ 
+
+#Save Swiss DA predictions
+```{r}
+df_test= df_CH_DA_test
+forecast_values =predictions_DA_CH
+response_test= df_CH_DA_test$day_ahead_price_ch
+
+df_scores= data.frame(date= df_test$date[1:743], pred= forecast_values[1:743], acutal=response_test[1:743] )
+
+write.csv(df_scores, "/Users/olivier/Documents/ETH 2. Semester¨/Statslab/Scores DA prices/1 - GARCH - Prediction - CH - Data Theoretical/holdout_predictions.csv", row.names = FALSE)
+
+print("saved")
+```
+
+German DA predictions
+```{r}
+df_test= df_DE_DA_test
+forecast_values =predictions_DA_DE
+response_test= df_CH_DA_test$day_ahead_price_de
+
+df_scores= data.frame(date= df_test$date[1:743], pred= forecast_values[1:743], acutal=response_test[1:743] )
+
+write.csv(df_scores, "/Users/olivier/Documents/ETH 2. Semester¨/Statslab/Scores DA prices/1 - GARCH - Prediction - DE - Data Theoretical/holdout_predictions.csv", row.names = FALSE)
+
+print("saved")
+```
+Auction DE-CH predictions
+```{r}
+df_test= df_DE_CH_AUCT_test
+forecast_values =predictions_AUCT_DE_CH
+response_test= df_CH_DA_test$auction_price_de_ch
+
+df_scores= data.frame(date= df_test$date[1:743], pred= forecast_values[1:743], acutal=response_test[1:743] )
+
+write.csv(df_scores, "/Users/olivier/Documents/ETH 2. Semester¨/Statslab/Scores Auction prices/1 - GARCH - Prediction - DECH - Data Theoretical/holdout_predictions.csv", row.names = FALSE)
+
+print("saved")
+```
+
+Auction DE-CH predictions
+```{r}
+df_test= df_CH_DE_AUCT_test
+forecast_values =predictions_AUCT_CH_DE
+response_test= df_CH_DA_test$auction_price_ch_de
+
+df_scores= data.frame(date= df_test$date[1:743], pred= forecast_values[1:743], acutal=response_test[1:743] )
+
+write.csv(df_scores, "/Users/olivier/Documents/ETH 2. Semester¨/Statslab/Scores Auction prices/1 - GARCH - Prediction - CHDE - Data Theoretical/holdout_predictions.csv", row.names = FALSE)
+
+print("saved")
+```
