@@ -1,5 +1,5 @@
 ---
-title: "Start from scratch again"
+title: "Simple Swiss day ahead fGarch (theoretical)"
 author: "Olivier Zehnder"
 date: "2024-05-21"
 output: html_document
@@ -15,7 +15,8 @@ library(fGarch)
 
 
 ```{r}
-df_CH_DA <- read.csv("~/Downloads/0_df_predictive_ch_spot_price.csv", header=TRUE)
+
+df_CH_DA <- read.csv("~/Downloads/0_df_theoretical_ch_spot_price.csv", header=TRUE)
 
 df_CH_DA$cal_day_in_month = as.factor(df_CH_DA$cal_day_in_month)
 df_CH_DA$cal_day_in_week = as.factor(df_CH_DA$cal_day_in_week)
@@ -26,6 +27,7 @@ df_CH_DA$cal_year = as.factor(df_CH_DA$cal_year)
 
 df_CH_DA_train= arrange(df_CH_DA, date)[1:8734,]
 df_CH_DA_test= arrange(df_CH_DA, date)[8735:9477,]
+
 
 ```
 
@@ -39,7 +41,7 @@ external_regressors <- df_CH_DA_train[, c("day_ahead_price_de", "day_ahead_price
 # Combine response and regressors into one data frame
 df_combined <- cbind(response, external_regressors)
 
-garch_model <- garchFit(formula = ~ arma(1, 1) + garch(1, 1),
+garch_model <- garchFit(formula = ~ arma(2, 2) + garch(1, 1),
                         data = response,  # Provide the entire data frame
                         trace = FALSE)
 
@@ -60,7 +62,6 @@ plot(response_test, type="l", main="Swiss Day Ahead Prices - Predictions",  xlab
 lines(forecast_CH_DA$meanForecast, col="red")
 axis(1, at = seq(1, 743, by = 360), labels = df_CH_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
 ```
-
 
 
 
@@ -117,7 +118,7 @@ lines(forecast_CH_DA, col="red")
 axis(1, at = seq(1, 743, by = 360), labels = df_CH_DA_test$date[seq(1, 743, by = 360)], las = 2, cex.axis = 0.7)
 ```
 ```{r}
-save(all_forecasts, file = "forecasts_predictive_Swiss_DA_fGarch.RData")
+save(all_forecasts, file = "forecasts_theoretical_Swiss_DA_fGarch.RData")
 print("saved")
 ```
 
@@ -135,7 +136,7 @@ df_CH_DA_test$date<- format(df_CH_DA_test$date, "%d/%m/%Y %H:%M")
 df_scores= data.frame(date= df_CH_DA_test$date[1:720], .pred= forecast_CH_DA, acutal=response_test )
 
 # Assuming 'df' is your dataframe
-write.csv(df_scores, "/Users/olivier/Documents/ETH 2. Semester¨/Statslab/Scores DA prices/1 - GARCH - Prediction - CH - Data Predictive/holdout_predictions.csv", row.names = FALSE)
+write.csv(df_scores, "/Users/olivier/Documents/ETH 2. Semester¨/Statslab/Scores DA prices/1 - GARCH - Prediction - CH - Data Theoretical/holdout_predictions.csv", row.names = FALSE)
 
 
 print("saved")
