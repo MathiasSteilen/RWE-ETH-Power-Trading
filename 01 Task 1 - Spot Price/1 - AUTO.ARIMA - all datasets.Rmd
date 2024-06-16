@@ -223,6 +223,25 @@ prediction_plots<- function(target, predictions, setting = "predictive"){
   
 }
 
+table_fit<- function(fit, target, setting="predictive"){
+  coefficients <- coef(fit)
+  se <- sqrt(diag(vcov(fit)))  # Standard errors
+  ci <- confint(fit, level = 0.95)           # Confidence intervals
+  results <- data.frame(
+    Coefficient = coefficients,
+    SE = se,
+    `95% CI Lower` = ci[, 1],
+    `95% CI Upper` = ci[, 2]
+  )
+  alpha <- 0.05
+  results <- round(results, 3)
+  
+  target_clean <- gsub("_", " ", target)
+  setting_clean <- gsub("_", " ", setting)
+
+  knitr::kable(results, align = "c", caption = paste0("ARIMA Model for ", target_clean, " - ", setting_clean, " setting Coefficients and Confidence Intervals"), format = "latex") %>% cat(file = "tables_ARMA.tex", append = TRUE)
+}
+
 
 ```
 
@@ -236,11 +255,11 @@ prediction_plots<- function(target, predictions, setting = "predictive"){
 
 df <- read.csv("../00 Data Retrieval and Cleaning/0_df_predictive_ch_spot_price.csv") %>% mutate(date = ymd_hms(date))
 regressors <- c("day_ahead_price_de", "day_ahead_price_fr", "actual_load_ch", "capacity_forecast_de_lu_ch", "solar_ch" ,"crossborder_actual_flow_fr_ch", "nuclear_ch", "nuclear_actual_aggregated_de")
+target <- "day_ahead_price_ch"
+
 ```
 
 ```{r}
-target <- "day_ahead_price_ch"
-
 pred <- predict_24_auto(df, target, regressors)
 
 prediction_plots(target = target, predictions = pred)
@@ -258,6 +277,10 @@ write.csv(x = df_pred, file =  "../01 Task 1 - Spot Price/1 - ARIMAX - Predictio
 
 fit<- inference(target, regressors = regressors, df = df)
 
+
+table_fit(fit, target)
+
+
 inference_plots(df = df, fit = fit, target = target)
 
 ```
@@ -268,10 +291,11 @@ inference_plots(df = df, fit = fit, target = target)
 df<- read.csv("../00 Data Retrieval and Cleaning/0_df_predictive_de_spot_price.csv")  %>% mutate(date = ymd_hms(date))
 
 regressors = c("biomass_actual_aggregated_de", "crossborder_actual_flow_de_lu_ch", "day_ahead_price_fr", "actual_load_de", "fossil_gas_actual_aggregated_de" ,"wind_onshore_actual_aggregated_de", "nuclear_actual_aggregated_de", "other_actual_aggregated_de", "solar_forecast_de")
+target <- "day_ahead_price_de"
 ```
 
 ```{r}
-target <- "day_ahead_price_de"
+
 
 pred <- predict_24_auto(df, target, regressors)
 
@@ -292,6 +316,7 @@ fit<- inference(target, regressors = regressors, df = df)
 
 inference_plots(df = df, fit = fit, target = target)
 
+table_fit(fit, target) 
 ```
 
 ### DECH price
@@ -304,10 +329,11 @@ regressors = c("day_ahead_price_ch", "day_ahead_price_de", "actual_load_ch",
                "capacity_forecast_de_lu_ch", "crossborder_actual_flow_de_lu_ch", 
                "solar_actual_aggregated_de", "nuclear_actual_aggregated_de",
                "solar_forecast_de")
+target<- "auction_price_de_ch"
 ```
 
 ```{r}
-target<- "auction_price_de_ch"
+
 
 pred <- predict_24_auto(df, target, regressors)
 
@@ -329,6 +355,7 @@ fit<- inference(target, regressors = regressors, df = df)
 
 inference_plots(df = df, fit = fit, target = target)
 
+table_fit(fit, target) 
 ```
 
 ### CHDE price
@@ -337,10 +364,11 @@ inference_plots(df = df, fit = fit, target = target)
 df <- read.csv("../00 Data Retrieval and Cleaning/0_df_predictive_chde_auction_price.csv") %>% mutate(date = ymd_hms(date))
 
 regressors = c("day_ahead_price_ch", "day_ahead_price_de", "actual_load_ch", "actual_load_de", "allocated_capacity_ch_de" ,"capacity_forecast_ch_de_lu", "crossborder_actual_flow_ch_de_lu", "solar_actual_aggregated_de", "nuclear_actual_aggregated_de", "solar_forecast_de")
+target<- "auction_price_ch_de"
 ```
 
 ```{r}
-target<- "auction_price_ch_de"
+
 
 pred <- predict_24_auto(df, target, regressors)
 
@@ -362,6 +390,7 @@ fit<- inference(target, regressors = regressors, df = df)
 
 inference_plots(df = df, fit = fit, target = target)
 
+table_fit(fit, target) 
 ```
 
 ## Theoretical
@@ -374,10 +403,11 @@ setting <- "theoretical"
 df <- read.csv("../00 Data Retrieval and Cleaning/0_df_theoretical_ch_spot_price.csv") %>% mutate(date = ymd_hms(date))
 
 regressors = c("day_ahead_price_de", "day_ahead_price_fr", "actual_load_ch", "capacity_forecast_de_lu_ch", "solar_ch" ,"crossborder_actual_flow_fr_ch", "nuclear_ch", "nuclear_actual_aggregated_de")
+target<- "day_ahead_price_ch"
 ```
 
 ```{r}
-target<- "day_ahead_price_ch"
+
 
 pred <- predict_24_auto(df, target, regressors)
 
@@ -398,6 +428,7 @@ fit<- inference(target, regressors = regressors, df = df)
 
 inference_plots(df = df, fit = fit, target = target, setting)
 
+table_fit(fit, target) 
 ```
 
 ### DE price
@@ -406,10 +437,11 @@ inference_plots(df = df, fit = fit, target = target, setting)
 df <- read.csv("../00 Data Retrieval and Cleaning/0_df_theoretical_ch_spot_price.csv") %>% mutate(date = ymd_hms(date))
 
 regressors = c("biomass_actual_aggregated_de", "crossborder_actual_flow_de_lu_ch", "day_ahead_price_fr", "actual_load_de", "fossil_gas_actual_aggregated_de" ,"wind_onshore_actual_aggregated_de", "nuclear_actual_aggregated_de", "other_actual_aggregated_de", "solar_actual_aggregated_de")
+target<- "day_ahead_price_de"
+
 ```
 
 ```{r}
-target<- "day_ahead_price_de"
 
 pred <- predict_24_auto(df, target, regressors)
 
@@ -428,6 +460,7 @@ fit<- inference(target, regressors = regressors, df = df)
 
 inference_plots(df = df, fit = fit, target = target, setting)
 
+table_fit(fit, target) 
 ```
 
 ### DECH price
@@ -437,10 +470,12 @@ df <- read.csv("../00 Data Retrieval and Cleaning/0_df_theoretical_dech_auction_
 
 
 regressors = c("biomass_actual_aggregated_de", "crossborder_actual_flow_de_lu_ch", "day_ahead_price_fr", "actual_load_de", "fossil_gas_actual_aggregated_de" ,"wind_onshore_actual_aggregated_de", "nuclear_actual_aggregated_de", "other_actual_aggregated_de", "solar_actual_aggregated_de")
+
+target<- "auction_price_de_ch"
 ```
 
 ```{r}
-target<- "auction_price_de_ch"
+
 
 pred <- predict_24_auto(df, target, regressors)
 
@@ -461,6 +496,7 @@ fit<- inference(target, regressors = regressors, df = df)
 
 inference_plots(df = df, fit = fit, target = target, setting)
 
+table_fit(fit, target) 
 ```
 
 ### CHDE price
@@ -470,10 +506,11 @@ df <- read.csv("../00 Data Retrieval and Cleaning/0_df_theoretical_chde_auction_
 
 
 regressors = c("day_ahead_price_ch", "day_ahead_price_de", "actual_load_ch", "actual_load_de", "allocated_capacity_ch_de" ,"capacity_forecast_ch_de_lu", "crossborder_actual_flow_ch_de_lu", "solar_actual_aggregated_de", "nuclear_actual_aggregated_de", "solar_actual_aggregated_de")
+target<- "auction_price_ch_de"
+
 ```
 
 ```{r}
-target<- "auction_price_ch_de"
 
 pred <- predict_24_auto(df, target, regressors)
 
@@ -494,4 +531,5 @@ fit<- inference(target, regressors = regressors, df = df)
 
 inference_plots(df = df, fit = fit, target = target, setting)
 
+table_fit(fit, target) 
 ```
