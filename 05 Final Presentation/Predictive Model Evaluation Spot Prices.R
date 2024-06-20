@@ -2,6 +2,13 @@ library(tidyverse)
 library(yardstick)
 
 setwd(dirname(rstudioapi::getActiveDocumentContext()[[2]]))
+theme_set(
+  theme_light() +
+    theme(
+      plot.title = element_text(face="bold", size=14),
+      plot.subtitle = element_text(size = 10, colour = "grey50")
+    )
+)
 
 # Each Model needs
 # "model": name the model
@@ -279,73 +286,73 @@ plot<-preds %>%
   theme(legend.position = "top", legend.box = "horizontal") +
   guides(colour = guide_legend(title = NULL))  
 ggsave(plot=plot, filename = "plots_resultSection/day_ahead_price_ch - Theoretical.png", height=4, width = 8)
-  
-  plot<-preds %>%
-    filter(target == "day_ahead_price_ch") %>%
-    filter(data_type == "Predictive") %>%
-    pivot_longer(c(.pred, actual), names_to = "name", values_to = "value") %>%
-    mutate(line_label = case_when(
-      name == "actual" & model == "LightGBM" ~ "Actual",
-      name == ".pred" & model == "ARIMA" ~ "Predicted ARMA",
-      name == ".pred" & model == "LightGBM" ~ "Predicted LightGBM",
-      TRUE ~ NA_character_
-    )) %>%
-    ggplot(aes(x = date, y = value, colour = line_label)) +
-    geom_line(data = . %>% filter(name == "actual" & model == "LightGBM")) +
-    geom_line(data = . %>% filter(name == ".pred" & model == "ARIMA")) +
-    geom_line(data = . %>% filter(name == ".pred" & model == "LightGBM")) +
-    scale_colour_manual(values = c("Actual" = "black", "Predicted ARMA" = "firebrick", "Predicted LightGBM" = "gray50")) +
-    labs(y = "Price level") +
-    theme(legend.position = "top", legend.box = "horizontal") +
-    guides(colour = guide_legend(title = NULL))  
-  ggsave(plot=plot, filename = "plots_resultSection/day_ahead_price_ch - Predictive.png", height=4, width = 8)
 
-  
-  plot<-preds %>%
-    filter(target == "day_ahead_price_de") %>%
-    filter(data_type == "Theoretical") %>%
-    pivot_longer(c(.pred, actual), names_to = "name", values_to = "value") %>%
-    mutate(line_label = case_when(
-      name == "actual" & model == "LightGBM" ~ "Actual",
-      name == ".pred" & model == "GARCH" ~ "Predicted GARCH",
-      name == ".pred" & model == "LightGBM" ~ "Predicted LightGBM",
-      TRUE ~ NA_character_
-    )) %>%
-    ggplot(aes(x = date, y = value, colour = line_label)) +
-    geom_line(data = . %>% filter(name == "actual" & model == "LightGBM")) +
-    geom_line(data = . %>% filter(name == ".pred" & model == "GARCH")) +
-    geom_line(data = . %>% filter(name == ".pred" & model == "LightGBM")) +
-    scale_colour_manual(values = c("Actual" = "black", "Predicted GARCH" = "firebrick", "Predicted LightGBM" = "gray50")) +
-    labs(y = "Price level") +
-    theme(legend.position = "top", legend.box = "horizontal") +
-    guides(colour = guide_legend(title = NULL))  
-  ggsave(plot=plot, filename = "plots_resultSection/day_ahead_price_de - Theoretical.png", height=4, width = 8)
-  
-  plot<-preds %>%
-    filter(target == "day_ahead_price_de") %>%
-    filter(data_type == "Predictive") %>%
-    pivot_longer(c(.pred, actual), names_to = "name", values_to = "value") %>%
-    mutate(line_label = case_when(
-      name == "actual" & model == "LightGBM" ~ "Actual",
-      name == ".pred" & model == "GARCH" ~ "Predicted GARCH",
-      name == ".pred" & model == "LightGBM" ~ "Predicted LightGBM",
-      TRUE ~ NA_character_
-    )) %>%
-    ggplot(aes(x = date, y = value, colour = line_label)) +
-    geom_line(data = . %>% filter(name == "actual" & model == "LightGBM")) +
-    geom_line(data = . %>% filter(name == ".pred" & model == "GARCH")) +
-    geom_line(data = . %>% filter(name == ".pred" & model == "LightGBM")) +
-    scale_colour_manual(values = c("Actual" = "black", "Predicted GARCH" = "firebrick", "Predicted LightGBM" = "gray50")) +
-    labs(y = "Price level") +
-    theme(legend.position = "top", legend.box = "horizontal") +
-    guides(colour = guide_legend(title = NULL))  
-  ggsave(plot=plot, filename = "plots_resultSection/day_ahead_price_de - Predictive.png", height=4, width = 8)
-  
-  
-  
-  
-  
-  
+plot<-preds %>%
+  filter(target == "day_ahead_price_ch") %>%
+  filter(data_type == "Predictive") %>%
+  pivot_longer(c(.pred, actual), names_to = "name", values_to = "value") %>%
+  mutate(line_label = case_when(
+    name == "actual" & model == "LightGBM" ~ "Actual",
+    name == ".pred" & model == "ARIMA" ~ "Predicted ARMA",
+    name == ".pred" & model == "LightGBM" ~ "Predicted LightGBM",
+    TRUE ~ NA_character_
+  )) %>%
+  ggplot(aes(x = date, y = value, colour = line_label)) +
+  geom_line(data = . %>% filter(name == "actual" & model == "LightGBM")) +
+  geom_line(data = . %>% filter(name == ".pred" & model == "ARIMA")) +
+  geom_line(data = . %>% filter(name == ".pred" & model == "LightGBM")) +
+  scale_colour_manual(values = c("Actual" = "black", "Predicted ARMA" = "firebrick", "Predicted LightGBM" = "gray50")) +
+  labs(y = "Price level") +
+  theme(legend.position = "top", legend.box = "horizontal") +
+  guides(colour = guide_legend(title = NULL))  
+ggsave(plot=plot, filename = "plots_resultSection/day_ahead_price_ch - Predictive.png", height=4, width = 8)
+
+
+plot<-preds %>%
+  filter(target == "day_ahead_price_de") %>%
+  filter(data_type == "Theoretical") %>%
+  pivot_longer(c(.pred, actual), names_to = "name", values_to = "value") %>%
+  mutate(line_label = case_when(
+    name == "actual" & model == "LightGBM" ~ "Actual",
+    name == ".pred" & model == "GARCH" ~ "Predicted GARCH",
+    name == ".pred" & model == "LightGBM" ~ "Predicted LightGBM",
+    TRUE ~ NA_character_
+  )) %>%
+  ggplot(aes(x = date, y = value, colour = line_label)) +
+  geom_line(data = . %>% filter(name == "actual" & model == "LightGBM")) +
+  geom_line(data = . %>% filter(name == ".pred" & model == "GARCH")) +
+  geom_line(data = . %>% filter(name == ".pred" & model == "LightGBM")) +
+  scale_colour_manual(values = c("Actual" = "black", "Predicted GARCH" = "firebrick", "Predicted LightGBM" = "gray50")) +
+  labs(y = "Price level") +
+  theme(legend.position = "top", legend.box = "horizontal") +
+  guides(colour = guide_legend(title = NULL))  
+ggsave(plot=plot, filename = "plots_resultSection/day_ahead_price_de - Theoretical.png", height=4, width = 8)
+
+plot<-preds %>%
+  filter(target == "day_ahead_price_de") %>%
+  filter(data_type == "Predictive") %>%
+  pivot_longer(c(.pred, actual), names_to = "name", values_to = "value") %>%
+  mutate(line_label = case_when(
+    name == "actual" & model == "LightGBM" ~ "Actual",
+    name == ".pred" & model == "GARCH" ~ "Predicted GARCH",
+    name == ".pred" & model == "LightGBM" ~ "Predicted LightGBM",
+    TRUE ~ NA_character_
+  )) %>%
+  ggplot(aes(x = date, y = value, colour = line_label)) +
+  geom_line(data = . %>% filter(name == "actual" & model == "LightGBM")) +
+  geom_line(data = . %>% filter(name == ".pred" & model == "GARCH")) +
+  geom_line(data = . %>% filter(name == ".pred" & model == "LightGBM")) +
+  scale_colour_manual(values = c("Actual" = "black", "Predicted GARCH" = "firebrick", "Predicted LightGBM" = "gray50")) +
+  labs(y = "Price level") +
+  theme(legend.position = "top", legend.box = "horizontal") +
+  guides(colour = guide_legend(title = NULL))  
+ggsave(plot=plot, filename = "plots_resultSection/day_ahead_price_de - Predictive.png", height=4, width = 8)
+
+
+
+
+
+
 ## Tukey Anscombe ----
 preds |> 
   mutate(res = actual - .pred) |> 
@@ -355,3 +362,46 @@ preds |>
   geom_smooth() 
 
 
+## Evaluation Plots by our in day ----
+data_types = targets = preds |> 
+  distinct(data_type) |> 
+  pull()
+
+targets = preds |> 
+  distinct(target) |> 
+  pull()
+
+for (dt in data_types){
+  for (t in targets){
+    
+    p = preds |> 
+      mutate(hour = hour(date)) |> 
+      filter(data_type == dt) |> 
+      filter(target == t) |> 
+      filter(! model %in% c("XGBoost")) |>  
+      group_by(model, hour) |> 
+      # MAPE to account for different absolute levels of target by hour
+      summarise(metric = mean(abs(.pred - actual))/mean(actual)) |> 
+      # summarise(metric = mean(abs(.pred - actual))/mean(actual)) |> 
+      ggplot(aes(hour, metric, colour = model)) +
+      geom_line() +
+      labs(title = paste("Out-of-sample losses by hour in day"),
+           subtitle = paste("Target:", t, "|", "Data Type:", dt, "data"),
+           y = "MAPE",
+           x = "Hour in Day") +
+      scale_y_continuous(labels = percent_format()) +
+      ggsci::scale_color_jama() +
+      expand_limits(y = 0) +
+      theme(legend.title = element_blank())
+    
+    print(p)
+    ggsave(
+      plot = p,
+      filename = paste0("./plots_hourinday/", t, "_", dt, ".png"), 
+      height = 3, 
+      width = 6,
+      dpi = 250
+    )
+    
+  }
+}
