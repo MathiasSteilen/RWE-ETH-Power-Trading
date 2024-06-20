@@ -213,6 +213,30 @@ df = df |>
              pull(name)))
 ```
 
+```{r}
+tibble(
+  percentage = seq(0.01, 0.99, by = 0.01),
+  cols = map_dbl(percentage, function(pct){
+    df |> 
+      select(
+        colMeans(is.na(df)) |> 
+          enframe() |>
+          filter(value > pct) |> 
+          pull(name) 
+      ) |> 
+      ncol()
+  })
+) |> 
+  ggplot(aes(percentage, cols)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Number of columns with more than x% missing values",
+       y = "# of cols", x = "Minimum Missing Percentage") +
+  scale_x_continuous(breaks = seq(0, 1, 0.1), 
+                     labels = percent_format())
+```
+
+
 ### French Pumped Storage
 
 These two columns are not missing at random, they're pumped storage values showing production and consumption, fill the NA values with zero and keep both columns:
