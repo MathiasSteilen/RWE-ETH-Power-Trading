@@ -669,11 +669,11 @@ backtest |>
   geom_hline(yintercept = 0, lty = "dotted") +
   labs(title = "Relation of Loss Metric to Backtest Performance",
        x = "RMSE across all target variables", y = "Profit (EUR)") +
-  facet_wrap(~ direction, ncol = 1) +
+  facet_wrap(~ data_type, ncol = 1) +
   theme(legend.title = element_blank())
 
 ggsave(
-  filename = "./plots_backtest/Metric vs Profit",
+  filename = "./plots_backtest/Metric vs Profit.png",
   dpi = 250,
   width = 6,
   height = 6
