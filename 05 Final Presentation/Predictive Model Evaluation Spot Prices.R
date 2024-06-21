@@ -248,8 +248,28 @@ metrics <- preds |>
   pivot_wider(names_from = .metric, values_from = .estimate) |> 
   arrange(data_type, target, rmse)
 
-
 write.csv(metrics, "metricsPrices.csv")
+
+# Calculate the spreads
+price_spread <- preds %>%
+  filter(target %in% c("day_ahead_price_ch", "day_ahead_price_de")) %>%
+  pivot_wider(names_from = target, values_from = c(.pred, actual)) %>%
+  mutate(
+    pred_price_spread = .pred_day_ahead_price_ch - .pred_day_ahead_price_de,
+    actual_price_spread = actual_day_ahead_price_ch - actual_day_ahead_price_de
+  ) %>% select(-c(".pred_day_ahead_price_ch", ".pred_day_ahead_price_de", 
+                  "actual_day_ahead_price_ch", "actual_day_ahead_price_de"))
+
+metrics_price <- price_spread |> 
+  group_by(data_type, model) |>
+  eval_metrics(truth = actual_price_spread, estimate = pred_price_spread) |> 
+  unique() |> 
+  select(-c(.estimator)) |> 
+  pivot_wider(names_from = .metric, values_from = .estimate) |> 
+  arrange(data_type, target, rmse)
+
+write.csv(metrics_price, "metricsSpread_prices.csv")
+
 
 ## Time Series ----
 # preds |> 
