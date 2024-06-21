@@ -520,14 +520,15 @@ backtest = preds |>
     profit = case_when(
       direction == "DECH" ~ 
         (day_ahead_price_ch_actual - day_ahead_price_de_actual) -
-        (auction_price_de_ch_actual + 0.01),
+        (own_bid_jao + 0.01),
       direction == "CHDE" ~ 
         (day_ahead_price_de_actual - day_ahead_price_ch_actual) -
-        (auction_price_ch_de_actual + 0.01),
+        (own_bid_jao + 0.01),
       TRUE ~ FALSE
     )
   ) |> 
   group_by(model, data_type) |> 
+  arrange(date) |> 
   # Calculate cumulative profit
   mutate(
     cum_profit = cumsum(profit)
@@ -544,8 +545,151 @@ backtest |>
   theme(axis.title.x = element_blank())
 
 ggsave(
-  filename = "Backtest.png",
+  filename = "./plots_backtest/Backtest.png",
   dpi = 250,
   width = 6,
   height = 6
 )
+
+# Debugging of backtest ----
+
+# Evaluation metric performance vs profit performance
+
+
+# Did models trade in one direction particulary because they over-
+# or underestimated something?
+read_csv("../00 Data Retrieval and Cleaning/0_df_final_ml_theoretical.csv") |> 
+  select(date, auction_price_ch_de, auction_price_de_ch, day_ahead_price_de,
+         day_ahead_price_ch) |> 
+  mutate(
+    de_ch_spread = day_ahead_price_ch - day_ahead_price_de,
+    ch_de_spread = day_ahead_price_de - day_ahead_price_ch
+  ) |> 
+  # select(date, contains("spread")) |> 
+  # pivot_longer(-date) |> 
+  ggplot(aes(de_ch_spread, y = after_stat(density))) +
+  geom_histogram(fill = "dodgerblue", bins = 250) +
+  geom_vline(xintercept = 0, lty = "dotted") +
+  coord_cartesian(xlim = c(-200, 200)) +
+  scale_y_continuous(labels = percent_format()) +
+  labs(title = "Spread: CH Spot - DE Spot",
+       x = "Spread (CH - DE)",
+       y = "Density") +
+  theme(legend.title = element_blank())
+
+ggsave(
+  filename = "./plots_backtest/Spread.png",
+  dpi = 250,
+  width = 5,
+  height = 3
+)
+
+# read_csv("../00 Data Retrieval and Cleaning/0_df_final_ml_theoretical.csv") |> 
+#   select(date, auction_price_ch_de, auction_price_de_ch, day_ahead_price_de,
+#          day_ahead_price_ch) |>  
+#   pivot_longer(-date) |> 
+#   mutate(
+#     country = case_when(
+#       name == "auction_price_ch_de" ~ "CH_DE",
+#       name == "auction_price_de_ch" ~ "DE_CH",
+#       name == "day_ahead_price_de" ~ "DE",
+#       name == "day_ahead_price_ch" ~ "CH",
+#     ),
+#     variable = case_when(
+#       name == "auction_price_ch_de" ~ "JAO",
+#       name == "auction_price_de_ch" ~ "JAO",
+#       name == "day_ahead_price_de" ~ "SPOT",
+#       name == "day_ahead_price_ch" ~ "SPOT",
+#     ),
+#     date = floor_date(date, "1d")
+#   ) |> 
+#   group_by(date, country, variable) |> 
+#   summarise(value = mean(value, na.rm = T)) |> 
+#   ungroup() |> 
+#   ggplot(aes(date, value, colour = country)) +
+#   geom_line() +
+#   facet_wrap(~ variable, scales = "free_y", ncol = 1)
+
+# Predicted vs actual JAO prices
+preds |> 
+  filter(data_type == "Theoretical") |> 
+  mutate(date = floor_date(date, unit = "1d")) |> 
+  group_by(date, model, target, data_type) |> 
+  summarise(across(c(.pred, actual), mean)) |> 
+  ungroup() |> 
+  pivot_longer(c(.pred, actual)) |> 
+  distinct() |> 
+  ggplot(aes(date, value, colour = name)) +
+  geom_line() +
+  facet_wrap(~  model + target + data_type, scales = "free_y", ncol = 4)
+
+# Directional bias
+backtest |> 
+  count(data_type, direction, model) |> 
+  pivot_wider(names_from = direction, values_from = n) |> 
+  mutate(per = DECH/(CHDE + DECH)) |> 
+  ggplot(aes(per, reorder(model, per))) +
+  geom_col(fill = "dodgerblue") +
+  labs(title = "Directional Tendencies of Models",
+       y = "", x = "Share of Times Trading DE to CH") +
+  facet_wrap(~ data_type) +
+  scale_x_continuous(labels = percent_format(), limits = c(0, 1))
+
+ggsave(
+  filename = "./plots_backtest/Directions.png",
+  dpi = 250,
+  width = 5,
+  height = 3
+)
+
+
+# Relation of forecast accuracy with backtest performance
+backtest |> 
+  # filter(data_type == "Theoretical") |> 
+  group_by(model, data_type, direction) |> 
+  summarise(
+    profit_min = min(profit),
+    profit = sum(profit),
+    profit_max = max(profit),
+    
+  ) |> 
+  ungroup() |> 
+  left_join(
+    preds |> 
+      group_by(model, data_type) |> 
+      summarise(
+        # metric = mean(abs(.pred - actual))/mean(actual)
+        metric = sqrt(mean((actual - .pred)^2))
+      ),
+    by = c("model", "data_type")
+  ) |> 
+  ggplot(aes(metric, profit)) +
+  geom_point(aes(colour = model)) +
+  geom_smooth(method = "lm", se = F, ) +
+  geom_hline(yintercept = 0, lty = "dotted") +
+  labs(title = "Relation of Loss Metric to Backtest Performance",
+       x = "RMSE across all target variables", y = "Profit (EUR)") +
+  facet_wrap(~ data_type, ncol = 1) +
+  theme(legend.title = element_blank())
+
+ggsave(
+  filename = "./plots_backtest/Metric vs Profit.png",
+  dpi = 250,
+  width = 6,
+  height = 6
+)
+
+# Profits from directional trading
+backtest |> 
+  mutate(date = floor_date(date, unit = "1d")) |> 
+  group_by(date, model, data_type, direction) |> 
+  summarise(profit = sum(profit)) |>
+  ungroup() |> 
+  mutate(col = ifelse(profit > 0, "2", "1")) |> 
+  ggplot(aes(date, profit, fill = col)) +
+  geom_col() +
+  labs(y = "Daily Profit (EUR)") +
+  scale_fill_manual(values = c("firebrick", "forestgreen")) +
+  facet_wrap(~ model + direction + data_type, ncol = 4) +
+  theme(legend.position = "none",
+        axis.title.x = element_blank())
