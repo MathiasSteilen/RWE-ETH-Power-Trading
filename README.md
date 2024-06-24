@@ -1,5 +1,10 @@
 # ETH Zurich Statistics Lab: Collaborating with RWE on European Cross Border Power Trading ⚡
 
+<p align="center">
+  <img src="05 Final Presentation/06 - Solar Bathtub curve.png" height="300" />
+</p>
+
+
 This project models the differences in electricity prices between Germany and Switzerland, focusing on daily auctions that set prices and quantities for the next day’s electricity supply. The primary goal was to account for Joint Allocation Office (JAO) auction prices in trying to predict arbitrage opportunities in crossborder trading in the day-ahead markets.
 
 ## Data Sources and Preparation
