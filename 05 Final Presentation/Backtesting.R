@@ -1,6 +1,18 @@
 library(tidyverse)
 
+setwd(dirname(rstudioapi::getActiveDocumentContext()[[2]]))
+theme_set(
+  theme_light() +
+    theme(
+      plot.title = element_text(face="bold", size=14),
+      plot.subtitle = element_text(size = 10, colour = "grey50")
+    )
+)
+
+
 # Read predictions ----
+df_dates<-read_csv("../02 Task 2 - Transmission Price/1 - BASELINE - Prediction - CHDE/holdout_predictions.csv",)
+correcterd_dates<-df_dates$date
 
 preds = bind_rows(
   # Baselines  -----------------------------------------
@@ -664,13 +676,15 @@ backtest |>
     by = c("model", "data_type")
   ) |> 
   ggplot(aes(metric, profit)) +
-  geom_point(aes(colour = model)) +
-  geom_smooth(method = "lm", se = F, ) +
+  geom_point(aes(colour = model, shape = direction)) +
+  geom_smooth(method = "lm", se = F, linewidth = 0.25) +
   geom_hline(yintercept = 0, lty = "dotted") +
   labs(title = "Relation of Loss Metric to Backtest Performance",
        x = "RMSE across all target variables", y = "Profit (EUR)") +
   facet_wrap(~ data_type, ncol = 1) +
-  theme(legend.title = element_blank())
+  # theme(legend.title = element_blank()) +
+  ggsci::scale_colour_jama()
+  
 
 ggsave(
   filename = "./plots_backtest/Metric vs Profit.png",
